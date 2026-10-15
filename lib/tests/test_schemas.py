@@ -128,16 +128,18 @@ def test_the_installed_wheel_contains_every_schema(tmp_path: Path) -> None:
     (wheel,) = tmp_path.glob("compute_jobs-*.whl")
     run(uv, "venv", "--offline", "--python", sys.executable, tmp_path / "venv")
     run(uv, "pip", "install", "--offline", "--no-deps", "--python", venv_python, wheel)
-    loaded = run(
-        venv_python,
-        "-c",
-        "import compute_jobs.schemas as s; print(s.__file__);"
-        "print(sorted(s.load_schema(f, m)['title'] for f, m in s.CURRENT_MAJOR.items()))",
-    ).splitlines()
-
-    assert Path(loaded[0]).is_relative_to(tmp_path / "venv")
-    expected_titles = sorted(
-        str(load_schema(format_name, major)["title"])
-        for format_name, major in CURRENT_MAJOR.items()
+    # Reads the files through the distribution's metadata, without importing
+    # compute_jobs, whose source mutmut rewrites to import mutmut.
+    installed = json.loads(
+        run(
+            venv_python,
+            "-c",
+            "import importlib.metadata as m, json; print(json.dumps({f.name: json.loads("
+            "f.read_text()) for f in m.files('compute-jobs') if f.name.endswith('.schema.json')}))",
+        )
     )
-    assert loaded[1] == repr(expected_titles)
+
+    assert installed == {
+        f"{format_name}.v{major}.schema.json": load_schema(format_name, major)
+        for format_name, major in CURRENT_MAJOR.items()
+    }
