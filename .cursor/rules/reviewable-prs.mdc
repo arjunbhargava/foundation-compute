@@ -19,8 +19,8 @@ generated code, and vendored files: aim for **300 changed lines**, with
   mechanical change first, then the behaviour change on top.
 - No drive-by edits (formatting, unrelated fixes, dependency bumps). List them
   under Follow-ups instead.
-- A change that decision D7 in `docs/template-plan.md` says needs an approved
-  plan gets one before coding. Read the `plan` skill.
+- A change that decision D7 in the plan in the template repository
+  (https://github.com/arjunbhargava/foundation) says needs an approved plan gets one before coding. Read the `plan` skill.
 
 When a task looks likely to exceed 500 lines, read the `large-changes` skill
 before starting it. It covers splitting the work into stacked PRs, and the

@@ -3,7 +3,8 @@ name: plan
 description: >
   Write a short plan covering the problem, the interface, the files touched,
   and the acceptance criteria, then stop until a person approves it. Use when
-  a change meets decision D7 in `docs/template-plan.md`, before writing its
+  a change meets decision D7 in the plan in the template repository
+  (https://github.com/arjunbhargava/foundation), before writing its
   code: a new module, a change to a public interface or data format, or a new
   dependency.
 ---
@@ -11,7 +12,8 @@ description: >
 # Plan
 
 Some changes need a plan that a person approves before any code is written:
-those that meet decision D7 in `docs/template-plan.md`. Check a task against
+those that meet decision D7 in the plan in the template repository
+(https://github.com/arjunbhargava/foundation). Check a task against
 D7 before starting, and again if the work grows, for example when it turns out
 to need a new module. Below the threshold, write no plan. Planning pays
 off only for larger changes, and a bad plan is worse than none (finding F5).

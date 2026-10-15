@@ -14,7 +14,7 @@ Tests are how a reviewer checks that a PR does what its issue asks. This skill
 says what the tests must show, not how to arrive at them: write them before or
 after the code. Telling agents to follow a process such as test-driven
 development made little difference, while tests that state concrete expected
-behaviour did help (finding F4 in `docs/template-plan.md`).
+behaviour did help (finding F4 in the plan in the template repository, https://github.com/arjunbhargava/foundation).
 
 ## One named test per acceptance criterion
 

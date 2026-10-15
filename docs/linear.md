@@ -3,7 +3,7 @@
 Work is planned as Linear issues, and Cursor cloud agents turn each issue into
 one pull request (PR). This page is for people and agents who file or pick up
 issues. The repository owner sets up the Linear and Cursor settings
-these conventions rely on (task T17 in [the template plan](template-plan.md)).
+these conventions rely on (task T17 in the plan in the [template repository](https://github.com/arjunbhargava/foundation)).
 
 ## Filing an issue
 
@@ -32,7 +32,7 @@ these conventions rely on (task T17 in [the template plan](template-plan.md)).
 
 - A person adds the `agent-ready` label when the template is filled in,
   everything the issue needs has merged, and any plan the change needs
-  (decision D7 in the plan) is approved. Sub-issues don't inherit labels, so
+  (decision D7 in the plan in the [template repository](https://github.com/arjunbhargava/foundation)) is approved. Sub-issues don't inherit labels, so
   add it to each sub-issue.
 - Delegate only `agent-ready` issues to Cursor: pick Cursor in the assignee
   field, or mention `@Cursor` in a comment. Linear keeps the person as the

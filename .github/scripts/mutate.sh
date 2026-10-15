@@ -19,7 +19,7 @@
 #
 # The report goes to stdout and, in GitHub Actions, to the job summary.
 # Surviving mutants don't fail the script: for now, mutation testing reports
-# and doesn't block merging (T14 in docs/template-plan.md). It fails only when
+# and doesn't block merging (T14 in the plan in the template repository, https://github.com/arjunbhargava/foundation). It fails only when
 # the tool does, for example when a test fails before any code is mutated.
 #
 # Keep it working under bash 3.2, the version macOS ships: no mapfile.

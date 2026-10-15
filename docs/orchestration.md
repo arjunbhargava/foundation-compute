@@ -199,7 +199,7 @@ events read about 13.3 million cache-read tokens, about 350,000 per event. The r
   decided this on 2026-10-14 and expects to reach it rarely. The owner raises
   it for very ambitious or complex work, because splitting such work across
   more workers keeps each context short and lowers cost. Raising it does not
-  raise the open-PR limit (D9 in `template-plan.md`).
+  raise the open-PR limit (D9 in the plan in the [template repository](https://github.com/arjunbhargava/foundation)).
 - **Check spend at each pause**, and tell the owner the totals:
   `mise run spend -- --since "$(date -u +%F)"`. The "All N cloud agent
   runs" total counts every repository's agents; this

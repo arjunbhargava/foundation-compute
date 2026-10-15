@@ -63,8 +63,8 @@ Bring each language in through the first option that works, in this order:
 
 The Python, TypeScript, Rust, and C/C++ rows, and every gate in them, were
 verified end to end: the template's `docs/build.sh` and `docs/conf.py` run
-them, and the tasks that added each language (T6–T9 in
-`docs/template-plan.md`) broke each gate once to show it fails.
+them, and the tasks that added each language (T6–T9 in the
+plan in the template repository, https://github.com/arjunbhargava/foundation) broke each gate once to show it fails.
 
 Doxygen reports undocumented functions and macros only in a header that has a
 `@file` comment, so `build.sh` fails on a header without one.

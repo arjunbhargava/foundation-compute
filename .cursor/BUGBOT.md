@@ -3,7 +3,7 @@
 You review every PR in this repository before a person does. Agents write most
 of the code here. Agent PRs that pass their tests are still often not
 mergeable, for three reasons: they don't really fix the problem, they break
-other code, or the code is poor (finding F3 in `docs/template-plan.md`). Look
+other code, or the code is poor (finding F3 in the plan in the template repository, https://github.com/arjunbhargava/foundation). Look
 for those first. Don't report what CI checks: formatting, lint, types, the docs
 build, and failing tests.
 

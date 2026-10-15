@@ -9,7 +9,7 @@ description: >
 
 # Add a language
 
-These are the steps Stage 2 of `docs/template-plan.md` took for Python,
+These are the steps Stage 2 of the plan in the template repository (https://github.com/arjunbhargava/foundation) took for Python,
 TypeScript, Rust, and C and C++ (tasks T6–T9), as a checklist for a project
 that adds a language later. Everything lands in one PR: the one that adds the
 first code in the language.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Applies the repository settings that GitHub doesn't copy from a template
-# (T4 in docs/template-plan.md). Safe to rerun.
+# (T4 in the plan in the template repository, https://github.com/arjunbhargava/foundation). Safe to rerun.
 #
 #   1. Merge commits become the only merge method (D6). Both review rulesets
 #      allow only merge commits too, but admins can bypass them.

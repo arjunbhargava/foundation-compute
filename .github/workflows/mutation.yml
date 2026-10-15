@@ -1,7 +1,7 @@
 # Mutation-tests the code each pull request changes, with `mise run
 # mutate:<language>`, and lists in the job summary each surviving mutant: a
 # small deliberate bug, such as `<` replaced by `<=`, that every test still
-# passes. For now it only reports (T14 in docs/template-plan.md): the rulesets
+# passes. For now it only reports (T14 in the plan in the template repository, https://github.com/arjunbhargava/foundation): the rulesets
 # don't require it and ci-ok doesn't need it, so surviving mutants never block
 # merging. It fails only when a mutation tool fails.
 name: Mutation testing
