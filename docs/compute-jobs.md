@@ -921,7 +921,7 @@ admin policy, and provisioning run on Opus; the rest on Sonnet. A PR marked
 | 15 | The spike: the three examples through the real server, verified by the owner; this page and `docs/architecture.md` rewritten as built | Opus | yes: compute spend | AC 19, 20 |
 
 **What CI can test**: AC 1 to 18, 21, and 22, with no AWS account, network, or
-server, using a fake SkyPilot SDK, a local fake server for AC 22, moto for S3, a fake `nvidia-smi`, Ray and
+server, using a fake SkyPilot SDK, a socket that never answers for AC 22, moto for S3, a fake `nvidia-smi`, Ray and
 `torchrun` on one CI machine, and a container with only Python 3.14 for AC
 21; IAM policies only statically (the allowed prefixes, actions, and trust
 in the JSON); the image workflow's build and smoke test, but not its push.
@@ -1058,8 +1058,10 @@ and 20.
     [How the owner verifies](#how-the-owner-verifies).
 21. On a machine with only Python 3.14, the mise pin above gives a working
     `compute-jobs dry-run`, and the library installs into a 3.14 project.
-22. Against a local fake server that accepts connections and never answers,
-    `launch` and `cancel` exit 1 within 15 seconds naming the endpoint, and a
+22. With the endpoint `https://compute-jobs.test`, which passes AC 1's checks
+    and which the test resolves to a socket that accepts connections and
+    never answers, `launch` and `cancel` exit 1 within 15 seconds naming the
+    endpoint, and a
     fake SDK records no submission; `observe` exits 0 from a moto archive
     with the read-only key set, and 1 without it; `dry-run` is unaffected.
 
