@@ -39,8 +39,8 @@ if (repository_root / "Cargo.toml").is_file():
 # C and C++: docs/build.sh runs Doxygen, whose XML Breathe reads.
 if (repository_root / "CMakeLists.txt").is_file():
     extensions.append("breathe")
-    breathe_projects = {"foundation": "_generated/doxygen"}
-    breathe_default_project = "foundation"
+    breathe_projects = {"foundation-compute": "_generated/doxygen"}
+    breathe_default_project = "foundation-compute"
 
 nitpicky = True
 myst_heading_anchors = 3
@@ -65,7 +65,6 @@ exclude_patterns = ["_build", ".venv"]
 # The page that includes each of these root files, which a link to the file
 # from another root file leads to. docs/conf_test.py checks the page names.
 pages_of_root_files = {
-    Path("README.md"): "project-readme",
     Path("AGENTS.md"): "agent-instructions",
 }
 

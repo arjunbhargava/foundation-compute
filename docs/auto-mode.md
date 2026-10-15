@@ -7,7 +7,7 @@ a person, and CI and Bugbot are the gate, so exploratory work that needs
 several rounds doesn't wait for review on each. It is a switch for the whole
 repository; a PR without the `agent` label still needs a person's approval.
 
-Status: in progress (T23 in [the template plan](template-plan.md)). The
+Status: in progress (T23 in the plan in the [template repository](https://github.com/arjunbhargava/foundation)). The
 review ruleset, the approval workflow, the auto-merge workflow, and the
 owned-paths and needs-human-review checks are in place. Until the branch-update workflow lands, a PR
 that falls behind `main` waits for someone to update it.
@@ -41,9 +41,9 @@ rulesets. `mise run lint:rulesets` fails if they differ in anything else.
 
 ### Why code-owner review isn't enough
 
-PR #54 changed only `AGENTS.md` and `AGENTS.md.jinja`, which
-`.github/CODEOWNERS` assigns to the owner, and merged in auto mode on
-2026-10-12 with only the approval workflow's approval. GitHub requested no
+In the template repository, PR #54 changed only `AGENTS.md` and the template
+file it is generated from, which `.github/CODEOWNERS` assigns to the owner,
+and merged in auto mode on 2026-10-12 with only the approval workflow's approval. GitHub requested no
 code owner's review and reported the review decision as `APPROVED`, and
 auto-merge, turned on by `github-actions[bot]`, which can't bypass, merged
 it. The likely cause: agent PRs are opened from the owner's account, the

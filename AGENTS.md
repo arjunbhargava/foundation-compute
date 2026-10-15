@@ -66,7 +66,7 @@ Each language task adds its directory and lists it here.
     `mise exec -- uv add --project docs --dev <package>`, which pins it in
     `docs/uv.lock`.
 - Don't change `.cursor/rules/` or `.cursor/skills/` unless the task is about
-  them. People write those files (finding F2 in the plan).
+  them. People write those files (finding F2 in the plan in the template repository, https://github.com/arjunbhargava/foundation).
 - The PR body follows the `reviewable-prs` rule.
 - Before asking a person to review a PR, fix each finding in Bugbot's review
   of the latest push (the `Cursor Bugbot` check), or reply saying why it is

@@ -10,7 +10,7 @@
 # off while the PR is a draft, has the needs-human-review label, Bugbot
 # hasn't finished reviewing its head commit, or the PR changes a path in .github/CODEOWNERS, which only the
 # owner merges (owned_paths.sh). Otherwise it is turned on, with a merge
-# commit (D6 in docs/template-plan.md), unless the repository's "Allow
+# commit (D6 in the plan in the template repository, https://github.com/arjunbhargava/foundation), unless the repository's "Allow
 # auto-merge" setting is off. When the PR already meets every requirement,
 # gh merges it at once instead of turning on auto-merge.
 #

@@ -20,7 +20,6 @@ public.
 :caption: Start here
 :maxdepth: 1
 
-README <project-readme>
 agent-instructions
 ```
 
@@ -34,7 +33,6 @@ auto-mode
 install-script
 linear
 orchestration
-template-plan
 template-updates
 ```
 

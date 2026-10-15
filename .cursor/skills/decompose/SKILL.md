@@ -12,7 +12,7 @@ description: >
 
 When many agents work at once, what works is a planner that splits the work
 and workers that each own one task on their own branch, without coordinating
-with each other (finding F7 in `docs/template-plan.md`). Splitting closely
+with each other (finding F7 in the plan in the template repository, https://github.com/arjunbhargava/foundation). Splitting closely
 connected code between agents breaks interfaces and causes rework (F8). So
 agree the interface first, land it, and then split the rest.
 
