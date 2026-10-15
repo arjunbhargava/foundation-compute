@@ -1,8 +1,14 @@
 # The template and answers this project was created from, which
 # `copier update` reads. Copier rewrites this file; don't edit it.
-_commit: 3690c82
+_commit: 10705c7
 _src_path: gh:arjunbhargava/foundation
+copyright_holder: Arjun
+copyright_year: '2026'
 cpp: false
+github_owner: arjunbhargava
+github_repository: arjunbhargava/foundation-compute
+package_name: foundation_compute
+project_name: foundation-compute
 python: true
 rust: false
 typescript: false

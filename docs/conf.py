@@ -5,19 +5,49 @@ its block in docs/build.sh does, so a project without the language leaves out
 its extensions and settings.
 """
 
+import subprocess
 from pathlib import Path
 from typing import Any
 
 project = "foundation-compute"
 repository_root = Path(__file__).resolve().parent.parent
 
+
+def python_source_directories() -> list[str]:
+    """List the src/ directory of each Python distribution that has one.
+
+    A distribution is the root project or, if the root pyproject.toml has a
+    [tool.uv.workspace], each of its members. uv expands the members' globs
+    and exclusions. docs/build.sh derives the same list.
+
+    Returns:
+        Absolute paths, the root's first.
+
+    Raises:
+        subprocess.CalledProcessError: If uv can't list the workspace.
+    """
+    listing = subprocess.run(
+        ["uv", "workspace", "list", "--paths"],
+        cwd=repository_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    source_directories = [f"{path}/src" for path in listing.stdout.split()]
+    return [path for path in source_directories if Path(path).is_dir()]
+
+
 extensions = ["myst_parser"]
 
 # Python: parsed from source without importing it.
 if (repository_root / "pyproject.toml").is_file():
     extensions += ["autoapi.extension", "sphinx.ext.intersphinx", "sphinx.ext.napoleon"]
+<<<<<<< before updating
     # One src/ per distribution, as in the root pyproject.toml's workspace.
     autoapi_dirs = ["../src", "../lib/src", "../compute/server/admin_policy/src"]
+=======
+    autoapi_dirs = python_source_directories()
+>>>>>>> after updating
     autoapi_root = "api/python"
     autoapi_options = [
         "members",

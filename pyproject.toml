@@ -20,6 +20,7 @@ requires = ["uv_build>=0.12.23,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
+<<<<<<< before updating
 module-name = "compute_jobs_cli"
 
 # One lockfile, uv.lock, and one environment, .venv, for all three
@@ -30,6 +31,11 @@ members = ["lib", "compute/server/admin_policy"]
 [tool.uv.sources]
 compute-jobs = { workspace = true }
 compute-jobs-admin-policy = { workspace = true }
+=======
+# The import package in src/. Without this, uv_build derives it from the
+# project's name, and the template's package_name question may differ.
+module-name = "foundation_compute"
+>>>>>>> after updating
 
 [dependency-groups]
 dev = [
@@ -69,14 +75,23 @@ exclude = ["**/mutants", "**/node_modules", "**/__pycache__", "**/.*"]
 # Add a contract for each rule:
 # https://import-linter.readthedocs.io/en/stable/contract_types.html
 [tool.importlinter]
+<<<<<<< before updating
 root_packages = ["compute_jobs_cli", "compute_jobs", "compute_jobs_admin_policy"]
 # Lets a contract name a package from outside the three, such as pytest.
+=======
+root_package = "foundation_compute"
+# Lets a contract name a package from outside foundation_compute, such as pytest.
+>>>>>>> after updating
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "Library code doesn't import pytest, a development-only dependency"
 type = "forbidden"
+<<<<<<< before updating
 source_modules = ["compute_jobs_cli", "compute_jobs", "compute_jobs_admin_policy"]
+=======
+source_modules = ["foundation_compute"]
+>>>>>>> after updating
 forbidden_modules = ["pytest"]
 
 # Job code installs compute-jobs on its own, without the client.
@@ -96,6 +111,7 @@ forbidden_modules = ["compute_jobs_cli", "compute_jobs"]
 [tool.pytest]
 # -n auto runs tests in parallel, so a test that depends on shared state or on
 # another test's order fails early instead of intermittently later.
+<<<<<<< before updating
 addopts = ["-n", "auto", "--doctest-modules"]
 # Test files need distinct names across the three tests/ directories, because
 # pytest imports each by its file name.
@@ -108,10 +124,24 @@ testpaths = [
     "compute/server/admin_policy/tests",
     ".github/scripts",
 ]
+=======
+#
+# importlib import mode imports each test file under its own path, so test
+# files in different distributions' tests/ directories may share a name, which
+# the default mode rejects. It doesn't put a test file's directory on sys.path,
+# so pythonpath lets the scripts' tests import the script beside them.
+#
+# conftest.py adds the src/ and tests/ of each uv workspace member to
+# testpaths when a run names no path.
+addopts = ["-n", "auto", "--doctest-modules", "--import-mode=importlib"]
+pythonpath = [".github/scripts"]
+testpaths = ["src", "tests", ".github/scripts"]
+>>>>>>> after updating
 strict = true
 filterwarnings = ["error"]
 
 [tool.mutmut]
+<<<<<<< before updating
 # mutmut guesses lib/ as the code to mutate when lib/ exists. .github/scripts/
 # mutate.sh runs mutmut in each distribution's directory, where it reads that
 # distribution's pyproject.toml.
@@ -119,3 +149,10 @@ source_paths = ["src"]
 # mutmut records which tests call each function, and can't see calls made in
 # pytest-xdist's worker processes, so it runs the tests in one process.
 pytest_add_cli_args = ["-n", "0"]
+=======
+# mutmut takes one src/ per run, and guesses lib/ before src/ in a directory
+# that has both, as the root of a workspace with a member in lib/ does.
+# .github/scripts/mutate.sh runs mutmut in each distribution's directory. A
+# member needs no [tool.mutmut] unless it has a lib/ directory of its own.
+source_paths = ["src"]
+>>>>>>> after updating

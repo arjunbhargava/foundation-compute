@@ -21,6 +21,9 @@
 /docs/conf.py            @arjunbhargava
 /Cargo.toml              @arjunbhargava
 /package.json            @arjunbhargava
+<<<<<<< before updating
 /copier.yml              @arjunbhargava
 # The shared server's configuration, IAM policies, and admin policy.
 /compute/server/         @arjunbhargava
+=======
+>>>>>>> after updating

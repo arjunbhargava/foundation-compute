@@ -1,32 +1,28 @@
 # foundation-compute
 
-The project's documentation. The explanation pages are written by hand. The
-API reference is generated from doc comments in the source by
-`docs/build.sh`, which fails on any undocumented public symbol or broken
-reference.
-
-`.github/workflows/docs-site.yml` publishes this site to GitHub Pages from
-`main`: after each push, daily, and when run from the Actions tab. The daily
-run publishes pull requests that auto-merge, because GitHub starts no
-workflow for those merges. Each repository, including each project made from
-the template, turns Pages on once, in Settings > Pages > Build and
-deployment > Source: GitHub Actions; until then the workflow's deploy job
-fails. A project that doesn't want a site disables the workflow in the
-Actions tab instead. GitHub Pages is free for public repositories but needs a
-paid plan for private ones, and the site of a private repository is still
-public.
+The project's documentation: its own pages first, then the API reference,
+which `docs/build.sh` generates from doc comments in the source and fails on
+any undocumented public symbol or broken reference. The operating guide holds
+the pages that are the same in every project made from the template.
 
 ```{toctree}
-:caption: Start here
+:caption: This project
 :maxdepth: 1
 
+<<<<<<< before updating
 agent-instructions
+=======
+README <project-readme>
+architecture
+>>>>>>> after updating
 ```
 
 ```{toctree}
-:caption: Explanation
+:caption: API reference
 :maxdepth: 1
+:glob:
 
+<<<<<<< before updating
 agent-rules-and-skills
 architecture
 auto-mode
@@ -35,12 +31,14 @@ install-script
 linear
 orchestration
 template-updates
+=======
+api/*
+>>>>>>> after updating
 ```
 
 ```{toctree}
-:caption: API reference
+:caption: From the template
 :maxdepth: 1
-:glob:
 
-api/*
+operating-guide
 ```

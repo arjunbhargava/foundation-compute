@@ -29,8 +29,8 @@ main() {
     0 "PR #7 changes no path in .github/CODEOWNERS."
   expect_result passes_when_the_pr_changes_no_file '[[]]' 0 "PR #7 changes no path in .github/CODEOWNERS."
   expect_result fails_listing_only_the_owned_paths \
-    '[[{"filename": "docs/linear.md"}, {"filename": "AGENTS.md"}, {"filename": ".github/workflows/ci.yml"}, {"filename": "crates/foundation/Cargo.toml"}]]' \
-    1 "$list_start$(printf '%s\n' AGENTS.md .github/workflows/ci.yml crates/foundation/Cargo.toml)"
+    '[[{"filename": "docs/linear.md"}, {"filename": "AGENTS.md"}, {"filename": ".github/workflows/ci.yml"}, {"filename": "crates/example/Cargo.toml"}]]' \
+    1 "$list_start$(printf '%s\n' AGENTS.md .github/workflows/ci.yml crates/example/Cargo.toml)"
   expect_result fails_when_an_owned_file_is_renamed_to_an_unowned_path \
     '[[{"filename": "docs/agents.md", "previous_filename": "AGENTS.md"}]]' 1 "${list_start}AGENTS.md"
   expect_result skips_a_negated_line_as_github_does \

@@ -15,7 +15,7 @@ trap 'rm -rf "$work"' EXIT
 failures=0
 
 agent_pr='{
-  "number": 7, "state": "open", "draft": false, "user": {"login": "arjunbhargava"},
+  "number": 7, "state": "open", "draft": false, "user": {"login": "a-person"},
   "head": {"sha": "new", "repo": {"full_name": "o/r"}}, "base": {"ref": "main"},
   "labels": [{"name": "agent"}], "auto_merge": null
 }'

@@ -92,14 +92,18 @@ jobs:
             echo "install-script=$(changed .cursor/install.sh .cursor/environment.json .config/mise/conf.d/)"
             # The site includes README.md and AGENTS.md as pages.
             echo "docs=$(changed docs/ README.md AGENTS.md)"
+<<<<<<< before updating
             echo "python=$(language_changed pyproject.toml '*.py' uv.lock .python-version .config/mise/conf.d/python.toml lib/ compute/server/admin_policy/)"
+=======
+            echo "python=$(language_changed pyproject.toml '*.py' '*/pyproject.toml' ':(exclude)docs/pyproject.toml' uv.lock .python-version .config/mise/conf.d/python.toml)"
+>>>>>>> after updating
             echo "rust=$(language_changed Cargo.toml crates/ Cargo.lock rust-toolchain.toml deny.toml .config/mise/conf.d/rust.toml)"
             echo "typescript=$(language_changed package.json packages/ pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json biome.json .dependency-cruiser.cjs .config/mise/conf.d/typescript.toml)"
             echo "cpp=$(language_changed CMakeLists.txt cpp/ CMakePresets.json .clang-format .clang-tidy Doxyfile .config/mise/conf.d/cpp.toml)"
-            echo "rulesets=$(changed .github/rulesets/)"
+            echo "rulesets=$(changed .github/rulesets/ .github/scripts/setup_status.sh .github/scripts/setup_status_test.sh)"
             echo "workflows=$(changed .github/workflows/ .github/scripts/lint_workflows.sh .github/scripts/lint_workflows_test.sh)"
             # The files the check reads, which are those that list the languages.
-            echo "language-listings=$(changed .github/scripts/language_listings.sh .github/scripts/language_listings_test.sh .config/mise/conf.d/ .github/workflows/ docs/build.sh docs/api/ AGENTS.md README.md copier.yml)"
+            echo "language-listings=$(changed .github/scripts/language_listings.sh .github/scripts/language_listings_test.sh .config/mise/conf.d/ .github/workflows/ docs/build.sh docs/api/ AGENTS.md .github/README.md copier.yml)"
             # The script runs owned_paths.sh, which reads .github/CODEOWNERS.
             echo "auto-merge-script=$(changed .github/scripts/auto_merge.sh .github/scripts/auto_merge_test.sh .github/scripts/owned_paths.sh .github/CODEOWNERS)"
             # The script reads the review rulesets' names from their files.
@@ -239,6 +243,7 @@ jobs:
       - run: bash .github/scripts/block_unlisted_tools.sh
       - run: mise run lint:rulesets
       - run: mise run test:rulesets
+      - run: mise run test:setup-status-script
 
   workflows:
     needs: changes

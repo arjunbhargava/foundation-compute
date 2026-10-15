@@ -39,7 +39,7 @@ AGENT_LISTING_PAGES = [
     """{"agents": [
   {"id": "bc-other", "name": "Unrelated", "source": {"repository": "github.com/owner/other", "ref": "main"},
    "target": {"branchName": "cursor/unrelated"}},
-  {"id": "bc-run-a", "name": "Label spend", "source": {"repository": "github.com/owner/foundation", "ref": "main"},
+  {"id": "bc-run-a", "name": "Label spend", "source": {"repository": "github.com/owner/project", "ref": "main"},
    "target": {"branchName": "cursor/label-spend"}}
 ], "nextCursor": "cursor-2"}""",
     """{"agents": [
@@ -57,14 +57,14 @@ EXPECTED_LABELLED_REPORT = (
     + """
 | Cloud agent run | Task | Repository | Branch | First event (UTC) | Models | Events | Input tokens | Output tokens | Cache write tokens | Cache read tokens | Cost ($) |
 |---|---|---|---|---|---|--:|--:|--:|--:|--:|--:|
-| bc-run-a | Label spend | github.com/owner/foundation | cursor/label-spend | 2026-10-02 09:30 | claude-opus-5-5-xhigh, claude-sonnet-5-5-high | 2 | 101 | 2,002 | 3,003 | 40,004 | 36.00 |
+| bc-run-a | Label spend | github.com/owner/project | cursor/label-spend | 2026-10-02 09:30 | claude-opus-5-5-xhigh, claude-sonnet-5-5-high | 2 | 101 | 2,002 | 3,003 | 40,004 | 36.00 |
 | bc-run-b | Fix a\\|b | github.com/owner/other | cursor/fix-a-b | 2026-09-30 12:00 | claude-sonnet-5-5-high | 1 | 0 | 0 | 0 | 0 | 4.00 |
 | bc-run-c | unknown | unknown | unknown | 2026-09-29 16:40 | composer-2.5 | 1 | 5 | 6 | 7 | 8 | 0.25 |
 
 | Total | Events | Input tokens | Output tokens | Cache write tokens | Cache read tokens | Cost ($) |
 |---|--:|--:|--:|--:|--:|--:|
 | All 3 cloud agent runs | 4 | 106 | 2,008 | 3,010 | 40,012 | 40.25 |
-| Repository github.com/owner/foundation, 1 run | 2 | 101 | 2,002 | 3,003 | 40,004 | 36.00 |
+| Repository github.com/owner/project, 1 run | 2 | 101 | 2,002 | 3,003 | 40,004 | 36.00 |
 | Repository github.com/owner/other, 1 run | 1 | 0 | 0 | 0 | 0 | 4.00 |
 | Repository unknown, 1 run | 1 | 5 | 6 | 7 | 8 | 0.25 |
 | Usage outside cloud agent runs | 2 | 510 | 620 | 30 | 740 | 1.25 |
@@ -184,7 +184,7 @@ def test_listing_is_read_only_until_every_run_is_found(
 
     assert labels == {
         "bc-run-a": agent_spend.RunLabel(
-            "Label spend", "github.com/owner/foundation", "cursor/label-spend"
+            "Label spend", "github.com/owner/project", "cursor/label-spend"
         )
     }
     assert len(apis.requests) == 1

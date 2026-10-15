@@ -3,7 +3,11 @@
 Work is planned as Linear issues, and Cursor cloud agents turn each issue into
 one pull request (PR). This page is for people and agents who file or pick up
 issues. The repository owner sets up the Linear and Cursor settings
+<<<<<<< before updating
 these conventions rely on (task T17 in the plan in the [template repository](https://github.com/arjunbhargava/foundation)).
+=======
+these conventions rely on (task T17 in [the template plan](https://github.com/arjunbhargava/foundation/blob/main/docs/template-plan.md)).
+>>>>>>> after updating
 
 ## Filing an issue
 

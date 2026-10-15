@@ -22,7 +22,7 @@ main() {
   local lacks=" lacks new_language in"
   local expected=(".github/workflows/ci.yml$lacks" "docs/api/$lacks" "AGENTS.md$lacks")
   if [[ -f copier.yml ]]; then
-    expected+=("copier.yml$lacks" ".config/mise/conf.d/template.toml$lacks" ".github/workflows/template.yml$lacks" "README.md$lacks")
+    expected+=("copier.yml$lacks" ".config/mise/conf.d/template.toml$lacks" ".github/workflows/template.yml$lacks" ".github/README.md$lacks")
   fi
   expect_result $name 1 "${expected[@]}"
 
@@ -46,7 +46,7 @@ main() {
 copy_repository() {
   local file
   for file in .github/scripts/language_listings.sh .config/mise/conf.d/*.toml .github/workflows/*.yml \
-    docs/build.sh docs/api/*.md AGENTS.md README.md copier.yml; do
+    docs/build.sh docs/api/*.md AGENTS.md .github/README.md copier.yml; do
     if [[ -f $file ]]; then
       mkdir -p "$work/$1/$(dirname "$file")"
       cp "$file" "$work/$1/$file"

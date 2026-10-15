@@ -96,7 +96,11 @@ shows each run's name in its "Task" column, so the name also labels the spend
 report.
 
 - **Orchestrator**: `Orchestrator <MM/DD HH:MMZ>: <short descriptor>`, for
+<<<<<<< before updating
   example `Orchestrator 10/15 00:21Z: compute queue`.
+=======
+  example `Orchestrator 10/15 00:21Z: issue queue`.
+>>>>>>> after updating
 - **Worker**: `Worker <MM/DD HH:MMZ>: <short descriptor>`, for example
   `Worker 10/15 00:18Z: document agent names`. The descriptor is a few
   plain words saying what the worker does. It is not the task ID, which stays
@@ -199,7 +203,11 @@ events read about 13.3 million cache-read tokens, about 350,000 per event. The r
   decided this on 2026-10-14 and expects to reach it rarely. The owner raises
   it for very ambitious or complex work, because splitting such work across
   more workers keeps each context short and lowers cost. Raising it does not
+<<<<<<< before updating
   raise the open-PR limit (D9 in the plan in the [template repository](https://github.com/arjunbhargava/foundation)).
+=======
+  raise the open-PR limit (D9 in [the template plan](https://github.com/arjunbhargava/foundation/blob/main/docs/template-plan.md)).
+>>>>>>> after updating
 - **Check spend at each pause**, and tell the owner the totals:
   `mise run spend -- --since "$(date -u +%F)"`. The "All N cloud agent
   runs" total counts every repository's agents; this
