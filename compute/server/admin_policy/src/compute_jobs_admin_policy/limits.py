@@ -1,14 +1,15 @@
-"""``limits.yaml``, the compute list, and the spending-ceiling check on it.
+"""``limits.yaml``, the compute list, and the quota-based spending ceiling.
 
 ``limits.yaml`` names each hardware profile a job file may ask for, as an
-ordered list of EC2 instance types, together with the EC2 vCPU quotas and the
-daily spending cap. It is data: adding or enabling an instance type is an
-edit to that file, which :func:`parse_limits` validates against
-``limits.v1.schema.json`` in this package.
+ordered list of EC2 instance types, together with the spend limits the admin
+policy enforces and the account's EC2 vCPU quotas. It is data: adding or
+enabling an instance type is an edit to that file, which :func:`parse_limits`
+validates against ``limits.v1.schema.json`` in this package.
 
-EC2's vCPU quotas cap what can run at once, so they also cap the hourly spend.
-:func:`spending_ceiling` fills each quota group with its dearest enabled
-entry per vCPU, and the result must stay within ``daily_cap_usd`` / 24.
+The quotas limit nothing here: spend is limited in software, by
+``spend`` (see "Spend limits" in docs/compute-jobs.md). :func:`spending_ceiling`
+reports, for information, what the account could spend an hour with every
+quota group full of its dearest enabled entry per vCPU.
 """
 
 import json
@@ -19,8 +20,6 @@ from typing import TypedDict, cast
 
 import yaml
 from jsonschema import ValidationError, validate
-
-HOURS_PER_DAY = 24
 
 
 class InstanceTypeEntry(TypedDict):
@@ -68,18 +67,35 @@ class Profile(TypedDict):
     entries: list[InstanceTypeEntry]
 
 
+class SpendLimits(TypedDict):
+    """The spend limits the admin policy enforces when a job is launched.
+
+    Both are in USD at on-demand list price, > 0, and set by the owner.
+
+    Attributes:
+        max_burn_usd_per_hour: The most the running jobs and the new one
+            together may cost an hour.
+        daily_cap_usd: The most the ceilings of the jobs launched in any 24
+            hours, the new one included, may add up to.
+    """
+
+    max_burn_usd_per_hour: float
+    daily_cap_usd: float
+
+
 class Limits(TypedDict):
     """A parsed and validated ``limits.yaml``.
 
     Attributes:
         schema_version: 1, the only major this release reads.
-        daily_cap_usd: The most all jobs together may spend in a day, in USD.
-        quotas: Each quota group's EC2 vCPU quota, by group name.
+        spend: The spend limits.
+        quotas: Each quota group's applied EC2 vCPU quota, by group name; 0
+            where the quota isn't known yet.
         profiles: Each profile, by the name a job file uses.
     """
 
     schema_version: int
-    daily_cap_usd: float
+    spend: SpendLimits
     quotas: dict[str, int]
     profiles: dict[str, Profile]
 
@@ -119,10 +135,13 @@ def parse_limits(yaml_text: str) -> Limits:
 
     Example:
         >>> try:
-        ...     parse_limits("{schema_version: 1, daily_cap_usd: 0, quotas: {}, profiles: {}}")
+        ...     parse_limits(
+        ...         "{schema_version: 1, spend: {max_burn_usd_per_hour: 0, daily_cap_usd: 1},"
+        ...         " quotas: {}, profiles: {}}"
+        ...     )
         ... except InvalidLimitsError as error:
         ...     print(error)
-        limits.yaml at $.daily_cap_usd: 0 is less than or equal to the minimum of 0; see "Hardware profiles" in docs/compute-jobs.md
+        limits.yaml at $.spend.max_burn_usd_per_hour: 0 is less than or equal to the minimum of 0; see "Hardware profiles" in docs/compute-jobs.md
     """
     try:
         document: object = yaml.safe_load(yaml_text)
@@ -161,7 +180,10 @@ def parse_limits(yaml_text: str) -> Limits:
 
 @dataclass(frozen=True)
 class SpendingCeiling:
-    """The most the enabled entries can cost an hour, with every quota full.
+    """The most the enabled entries could cost an hour, with every quota full.
+
+    This is information for ``compute-server:status``, not a limit: it is
+    what the account could spend if launches bypassed the spend limits.
 
     Attributes:
         usd_per_hour_by_quota: Each quota group's ceiling in USD per hour:
@@ -169,30 +191,10 @@ class SpendingCeiling:
             entries that count against it, rounded to the cent; 0 for a
             group no enabled entry uses.
         usd_per_hour: The sum of the groups' ceilings.
-        cap_usd_per_hour: ``daily_cap_usd`` / 24.
     """
 
     usd_per_hour_by_quota: Mapping[str, float]
     usd_per_hour: float
-    cap_usd_per_hour: float
-
-    def refusal(self) -> str | None:
-        """Return why the ceiling exceeds the cap, or None if it is within it.
-
-        Example:
-            >>> print(spending_ceiling(shipped_limits()).refusal())
-            None
-        """
-        if self.usd_per_hour <= self.cap_usd_per_hour:
-            return None
-        groups = ", ".join(
-            f"{name} ${usd:.2f}" for name, usd in self.usd_per_hour_by_quota.items()
-        )
-        return (
-            f"limits.yaml's spending ceiling is ${self.usd_per_hour:.2f} an hour ({groups}), "
-            f"over daily_cap_usd / {HOURS_PER_DAY} = ${self.cap_usd_per_hour:.2f} an hour; "
-            "lower a quota or disable an entry, or ask the owner to raise the daily cap"
-        )
 
 
 def spending_ceiling(limits: Limits) -> SpendingCeiling:
@@ -203,7 +205,7 @@ def spending_ceiling(limits: Limits) -> SpendingCeiling:
 
     Example:
         >>> spending_ceiling(shipped_limits()).usd_per_hour
-        360.55
+        415.37
     """
     usd_per_vcpu_hour = dict.fromkeys(limits["quotas"], 0.0)
     for profile in limits["profiles"].values():
@@ -226,5 +228,4 @@ def spending_ceiling(limits: Limits) -> SpendingCeiling:
     return SpendingCeiling(
         usd_per_hour_by_quota=by_quota,
         usd_per_hour=round(sum(by_quota.values()), 2),
-        cap_usd_per_hour=limits["daily_cap_usd"] / HOURS_PER_DAY,
     )

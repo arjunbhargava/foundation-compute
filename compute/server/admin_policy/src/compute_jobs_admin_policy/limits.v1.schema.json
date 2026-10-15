@@ -1,15 +1,24 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "limits.yaml, major version 1",
-  "description": "The compute list: hardware profiles of ordered EC2 instance types, the EC2 vCPU quotas, and the daily spending cap. Every field is required, so a misspelt field can't silently enable an instance type.",
+  "description": "The compute list: hardware profiles of ordered EC2 instance types, the spend limits, and the EC2 vCPU quotas. Every field is required, so a misspelt field can't silently enable an instance type.",
   "type": "object",
-  "required": ["schema_version", "daily_cap_usd", "quotas", "profiles"],
+  "required": ["schema_version", "spend", "quotas", "profiles"],
   "additionalProperties": false,
   "properties": {
     "schema_version": { "const": 1 },
-    "daily_cap_usd": { "type": "number", "exclusiveMinimum": 0 },
+    "spend": {
+      "description": "The spend limits the admin policy enforces at launch, in USD at on-demand list price.",
+      "type": "object",
+      "required": ["max_burn_usd_per_hour", "daily_cap_usd"],
+      "additionalProperties": false,
+      "properties": {
+        "max_burn_usd_per_hour": { "type": "number", "exclusiveMinimum": 0 },
+        "daily_cap_usd": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
     "quotas": {
-      "description": "Each quota group's EC2 vCPU quota in us-east-1.",
+      "description": "Each quota group's applied EC2 vCPU quota in us-east-1, for information; 0 where unknown.",
       "type": "object",
       "additionalProperties": { "type": "integer", "minimum": 0 }
     },

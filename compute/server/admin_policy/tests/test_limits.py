@@ -33,15 +33,12 @@ def enable(document: dict[str, Any], profile: str) -> None:
         entry["enabled"] = True
 
 
-def ceiling_after(
-    quotas: dict[str, int], enabled_profiles: list[str]
-) -> tuple[float, bool]:
+def ceiling_after(quotas: dict[str, int], enabled_profiles: list[str]) -> float:
     document = shipped_document()
     document["quotas"].update(quotas)
     for profile in enabled_profiles:
         enable(document, profile)
-    ceiling = spending_ceiling(parse_limits(yaml.safe_dump(document)))
-    return ceiling.usd_per_hour, ceiling.refusal() is None
+    return spending_ceiling(parse_limits(yaml.safe_dump(document))).usd_per_hour
 
 
 def test_the_shipped_limits_validate_and_match_the_profiles_on_the_page() -> None:
@@ -58,54 +55,73 @@ def test_the_shipped_limits_validate_and_match_the_profiles_on_the_page() -> Non
         name: (max_nodes, {enabled})
         for name, (max_nodes, enabled) in PROFILES_ON_THE_PAGE.items()
     }
-    assert limits["daily_cap_usd"] == 10000
+    assert limits["spend"] == {"max_burn_usd_per_hour": 125, "daily_cap_usd": 3000}
     assert limits["quotas"] == {
-        "standard_on_demand": 64,
-        "g_vt_on_demand": 384,
-        "g_vt_spot": 384,
-        "p_on_demand": 0,
+        "standard_on_demand": 1152,
+        "g_vt_on_demand": 768,
+        "p_on_demand": 768,
+        "standard_spot": 0,
+        "g_vt_spot": 0,
         "p_spot": 0,
     }
 
 
-# Every row of the two tables under "Spending ceiling" in docs/compute-jobs.md.
+def test_the_starting_burn_limit_fits_two_gpu_sim_jobs_a_gpu_small_and_a_cpu_job() -> (
+    None
+):
+    limits = shipped_limits()
+
+    def largest_job_usd_per_hour(profile: str) -> float:
+        return max(
+            entry["usd_per_hour"] * entry["max_nodes"]
+            for entry in limits["profiles"][profile]["entries"]
+        )
+
+    burn_usd_per_hour = (
+        2 * largest_job_usd_per_hour("gpu-sim")
+        + largest_job_usd_per_hour("gpu-small")
+        + largest_job_usd_per_hour("cpu")
+    )
+
+    assert round(burn_usd_per_hour, 2) == 124.80
+    assert burn_usd_per_hour <= limits["spend"]["max_burn_usd_per_hour"]
+    assert (
+        limits["spend"]["daily_cap_usd"]
+        == 24 * limits["spend"]["max_burn_usd_per_hour"]
+    )
+
+
+# Every row of the table under "Quota-based ceiling" in docs/compute-jobs.md.
+# The ceiling is information: no row fails, whatever the spend limits say.
 @pytest.mark.parametrize(
-    ("quotas", "enabled_profiles", "usd_per_hour", "within_cap"),
+    ("quotas", "enabled_profiles", "usd_per_hour"),
     [
-        ({}, [], 360.55, True),
-        ({}, ["gpu-train-large"], 360.55, True),
-        ({"p_on_demand": 192}, ["gpu-train-large"], 415.59, True),
-        ({"p_on_demand": 384}, ["gpu-train-large"], 470.63, False),
-        ({"p_on_demand": 384, "g_vt_spot": 256}, ["gpu-train-large"], 411.07, True),
-        ({"g_vt_on_demand": 768, "g_vt_spot": 0}, ["gpu-sim-large"], 360.54, True),
-        (
-            {"g_vt_on_demand": 0, "g_vt_spot": 0, "p_on_demand": 1536},
-            ["gpu-train-large"],
-            443.55,
-            False,
-        ),
+        ({}, [], 415.37),
+        ({}, ["gpu-sim-large"], 415.37),
+        ({}, ["gpu-train-large"], 635.53),
+        ({"g_vt_spot": 768}, [], 772.68),
     ],
 )
-def test_the_spending_ceiling_matches_the_page_and_fails_over_the_daily_cap(
-    quotas: dict[str, int],
-    enabled_profiles: list[str],
-    usd_per_hour: float,
-    within_cap: bool,
+def test_the_quota_based_ceiling_matches_the_page(
+    quotas: dict[str, int], enabled_profiles: list[str], usd_per_hour: float
 ) -> None:
-    assert ceiling_after(quotas, enabled_profiles) == (usd_per_hour, within_cap)
+    assert ceiling_after(quotas, enabled_profiles) == usd_per_hour
 
 
-def test_a_ceiling_over_the_cap_names_the_total_and_the_cap() -> None:
+def test_the_ceiling_names_each_quota_group() -> None:
     document = shipped_document()
-    document["quotas"]["p_on_demand"] = 384
     enable(document, "gpu-train-large")
 
-    refusal = spending_ceiling(parse_limits(yaml.safe_dump(document))).refusal()
+    ceiling = spending_ceiling(parse_limits(yaml.safe_dump(document)))
 
-    assert refusal is not None
-    assert "$470.63 an hour" in refusal
-    assert "p_on_demand $110.08" in refusal
-    assert "$416.67 an hour" in refusal
+    assert ceiling.usd_per_hour_by_quota == {
+        "standard_on_demand": 58.06,
+        "g_vt_on_demand": 357.31,
+        "p_on_demand": 220.16,
+        "standard_spot": 0.0,
+        "g_vt_spot": 0.0,
+        "p_spot": 0.0,
+    }
 
 
 def edit_cpu_entry(field: str, value: object) -> str:
@@ -117,6 +133,12 @@ def edit_cpu_entry(field: str, value: object) -> str:
 def drop_cpu_entry_field(field: str) -> str:
     document = shipped_document()
     del document["profiles"]["cpu"]["entries"][0][field]
+    return yaml.safe_dump(document)
+
+
+def edit_spend(spend: dict[str, object]) -> str:
+    document = shipped_document()
+    document["spend"] = spend
     return yaml.safe_dump(document)
 
 
@@ -144,10 +166,28 @@ def duplicate_gpu_small_entry() -> str:
             "spot_quota: None is not of type 'string'",
         ),
         (
-            edit_cpu_entry("quota", "standard_spot"),
-            "quota group standard_spot, which quotas lacks",
+            edit_cpu_entry("quota", "dl_on_demand"),
+            "quota group dl_on_demand, which quotas lacks",
         ),
         (duplicate_gpu_small_entry(), "lists an instance type twice"),
+        (
+            edit_spend({"daily_cap_usd": 3000}),
+            "'max_burn_usd_per_hour' is a required property",
+        ),
+        (
+            edit_spend({"max_burn_usd_per_hour": 125, "daily_cap_usd": -1}),
+            "spend.daily_cap_usd: -1 is less than or equal to",
+        ),
+        (
+            edit_spend(
+                {
+                    "max_burn_usd_per_hour": 125,
+                    "daily_cap_usd": 3000,
+                    "monthly_cap_usd": 1,
+                }
+            ),
+            "('monthly_cap_usd' was unexpected)",
+        ),
     ],
 )
 def test_parse_limits_rejects_an_invalid_entry_naming_the_field(
