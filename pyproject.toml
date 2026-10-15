@@ -55,6 +55,7 @@ ignore = ["D107"]
 "**/tests/**" = ["D"]
 ".github/scripts/*_test.py" = ["D"]
 "docs/*_test.py" = ["D"]
+"compute/server/**/*_test.py" = ["D"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -106,6 +107,7 @@ testpaths = [
     "lib/tests",
     "compute/server/admin_policy/src",
     "compute/server/admin_policy/tests",
+    "compute/server/aws",
     ".github/scripts",
 ]
 strict = true

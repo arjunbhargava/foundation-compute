@@ -1,0 +1,62 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListArchive",
+      "Effect": "Allow",
+      "Action": ["s3:GetBucketLocation", "s3:ListBucket"],
+      "Resource": "arn:aws:s3:::<bucket>"
+    },
+    {
+      "Sid": "ReadArchive",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::<bucket>/*"
+    },
+    {
+      "Sid": "WriteOwnMachine",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::<bucket>/machines/${aws:userid}/*"
+    },
+    {
+      "Sid": "WriteIndexMarkers",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::<bucket>/index/*"
+    },
+    {
+      "Sid": "WriteCheckpoints",
+      "Effect": "Allow",
+      "Action": ["s3:DeleteObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::<bucket>/checkpoints/*"
+    },
+    {
+      "Sid": "AuthenticateToEcr",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "PullJobImage",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer"
+      ],
+      "Resource": "arn:aws:ecr:us-east-1:<account_id>:repository/compute-jobs/job"
+    },
+    {
+      "Sid": "EndOwnInstance",
+      "Effect": "Allow",
+      "Action": ["ec2:StopInstances", "ec2:TerminateInstances"],
+      "Resource": "arn:aws:ec2:us-east-1:<account_id>:instance/*",
+      "Condition": {
+        "ArnEquals": {
+          "ec2:SourceInstanceARN": "arn:aws:ec2:us-east-1:<account_id>:instance/${ec2:InstanceID}"
+        }
+      }
+    }
+  ]
+}
