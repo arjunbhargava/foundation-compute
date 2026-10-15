@@ -4,7 +4,7 @@
 [tasks."setup:python"]
 description = "Install the Python dependencies that uv.lock pins"
 # --all-packages also installs each workspace member's dev group, such as
-# lib/'s jsonschema, which a plain sync at the root leaves out.
+# the admin policy's type stubs, which a plain sync at the root leaves out.
 run = "uv sync --locked --all-packages"
 
 [tasks."fmt:python"]

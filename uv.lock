@@ -347,16 +347,16 @@ wheels = [
 name = "compute-jobs"
 version = "0.1.0"
 source = { editable = "lib" }
-
-[package.dev-dependencies]
-dev = [
+dependencies = [
     { name = "jsonschema" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
-
-[package.metadata.requires-dev]
-dev = [{ name = "jsonschema", specifier = ">=4.26.0" }]
+requires-dist = [
+    { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+]
 
 [[package]]
 name = "compute-jobs-admin-policy"

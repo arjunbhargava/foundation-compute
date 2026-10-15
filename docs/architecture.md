@@ -3,10 +3,11 @@
 Status: planned. The code is three Python distributions in one uv workspace:
 the client (`compute_jobs_cli`, at the root), the library job code imports
 (`compute_jobs`, in `lib/`), and the server's admin policy
-(`compute_jobs_admin_policy`, in `compute/server/admin_policy/`). The admin
-policy so far holds `limits.yaml`, the compute list, its validation, and the
-spending-ceiling check on its quotas. The client
-parses the four `compute-jobs` commands' arguments and reports each failure
+(`compute_jobs_admin_policy`, in `compute/server/admin_policy/`). The
+library so far reads and validates job files and names jobs (`job_file.py`).
+The admin policy holds `limits.yaml`, the compute list, with its validation
+and the spending-ceiling check on its quotas, and places a job on its
+profile's instance types (`placement.py`). The client parses the four `compute-jobs` commands' arguments and reports each failure
 with a kind (`kinds.py`); the commands' bodies are not built yet. The
 library never imports the client, and the admin policy imports neither,
 which the import-linter contracts in `pyproject.toml` check. "Packages and
