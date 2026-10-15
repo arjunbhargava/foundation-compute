@@ -9,6 +9,7 @@
 /docs/architecture.md    @arjunbhargava
 /.dependency-cruiser.cjs @arjunbhargava
 /pyproject.toml          @arjunbhargava
+/conftest.py             @arjunbhargava
 /CMakeLists.txt          @arjunbhargava
 /biome.json              @arjunbhargava
 /tsconfig.json           @arjunbhargava
