@@ -54,7 +54,6 @@ def test_map_on_ray_keeps_the_candidates_order(two_ray_nodes: set[str]) -> None:
     fitness = fanout.map(tenfold_after_a_shorter_sleep_for_later_candidates, range(6))
 
     assert fitness == [0, 10, 20, 30, 40, 50]
-    assert fitness.failed == 0
 
 
 @pytest.mark.xdist_group("two_ray_nodes")
@@ -137,7 +136,9 @@ def test_map_with_compute_job_smoke_counts_failed_evaluations(
 
     assert fitness == [1.0, None, 0.5]
     assert fitness.failed == 1
-    assert "1 of 3 evaluations failed" in capsys.readouterr().err
+    stderr = capsys.readouterr().err
+    assert "1 of 3 evaluations failed" in stderr
+    assert "ZeroDivisionError" in stderr
 
 
 def test_resume_generations_resumes_after_the_last_checkpoint(

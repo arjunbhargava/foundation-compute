@@ -246,9 +246,8 @@ def _evaluate_on_ray(
         from ray.exceptions import RayError
     except ModuleNotFoundError as error:
         raise RuntimeError(
-            "Ray isn't installed, so fanout.map can't run evaluations in parallel. "
-            'Add the library with its fanout extra, "compute-jobs[fanout]", to the '
-            "project's dependencies, or set COMPUTE_JOB_SMOKE=1 to run serially."
+            "Ray isn't installed; add \"compute-jobs[fanout]\" to the project's dependencies, "
+            "or set COMPUTE_JOB_SMOKE=1 to run the evaluations serially."
         ) from error
 
     if not ray.is_initialized():
