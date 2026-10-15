@@ -9,11 +9,7 @@ admin policy, from `compute/server/admin_policy/src/`.
 ```{toctree}
 :maxdepth: 1
 
-<<<<<<< before updating
 python/compute_jobs_cli/index
 python/compute_jobs/index
 python/compute_jobs_admin_policy/index
-=======
-python/foundation_compute/index
->>>>>>> after updating
 ```
