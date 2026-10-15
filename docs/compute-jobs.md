@@ -62,6 +62,7 @@ Progress: generation 12 of 50, evaluating, 6,400 of 10,000 evaluations; best fit
 | `the job server at https://... didn't answer within 10 s` | The server is down or unreachable; nothing was launched or cancelled | Ask the owner to run `compute-server:status`; observe still reads the archive with the read-only key |
 | `profile gpu-sim allows at most 2 nodes` | The job asks for more than the limits allow | Ask for fewer, or ask the owner to raise the limit |
 | `maximum cost $180.78 exceeds budget_usd 150` | The job could cost more than it may | Shorten `max_runtime_minutes`, use fewer nodes, or raise `budget_usd` within the task's budget |
+| `kind=rejected` and `spend limit: ...` on launch | The running jobs, or the day's launches, leave no room for this job under the owner's [spend limits](#spend-limits) | Wait for a job to end, shorten `max_runtime_minutes`, or ask the owner |
 | `FAILED (exit 1)` in observe | The job's command failed | Read the log tail observe prints, fix, push, launch again |
 | `RECOVERING` in observe | AWS took a spot machine back; the job restarts from its last checkpoint | Nothing, if the job checkpoints |
 | `driver supports CUDA 12.4, image needs 12.8` | The machine's GPU driver is older than the image | Ask the owner |
@@ -78,6 +79,10 @@ Progress: generation 12 of 50, evaluating, 6,400 of 10,000 evaluations; best fit
 - **Job kind**: `single`, `multi-node`, or `search`.
 - **Hardware profile**: a named, ordered list of instance-type entries in
   `limits.yaml`, such as `gpu-sim`, that a job names instead of a machine.
+- **Ceiling**: the most a job can cost at list price: its nodes × the
+  dearest entry kept for it, per hour × `max_runtime_minutes` / 60.
+- **Burn rate**: what the running jobs cost an hour at list price, as the
+  admin policy's launch ledger counts them ([Spend limits](#spend-limits)).
 - **Job name**: `pr<PR number>-<job file name>-<first 8 hex digits of the job
   file's SHA-256>`, such as `pr81-search-3f9a2c1d`.
 - **Job archive**: what a job writes to S3 (run record, progress, result,
@@ -281,17 +286,21 @@ start, and for multi-node and search jobs, from any one node's preemption.
 A job names a profile; the admin policy turns it into the profile's enabled
 entries, tried in order. Profiles live in `limits.yaml` as data, so any GPU
 instance type that EC2 offers is added by editing the list, not the code; the
-admin policy and the ceiling check read whatever the list says. Only the
-admin changes it, and a change ships in a release (`provision` applies it).
+admin policy and `compute-server:status` read whatever the list says. Only
+the admin changes it, and a change ships in a release (`provision` applies
+it).
 
 ```yaml
 schema_version: 1
-daily_cap_usd: 10000          # decision D8; never raised without the owner
-quotas:                       # vCPUs requested in us-east-1
-  standard_on_demand: 64
-  g_vt_on_demand: 384
-  g_vt_spot: 384
-  p_on_demand: 0
+spend:                        # the owner's to set; see Spend limits
+  max_burn_usd_per_hour: 125
+  daily_cap_usd: 3000
+quotas:                       # applied vCPU quotas in us-east-1; information only
+  standard_on_demand: 1152
+  g_vt_on_demand: 768
+  p_on_demand: 768
+  standard_spot: 0            # PLACEHOLDER: the spot quotas are unknown; 0 assumes nothing
+  g_vt_spot: 0
   p_spot: 0
 profiles:
   gpu-train-large:
@@ -307,7 +316,7 @@ profiles:
         usd_per_hour: 55.04
         max_nodes: 2
         spot_allowed: false
-        enabled: false        # until the P quota is raised
+        enabled: false        # until the owner chooses
 ```
 
 For a job, the policy keeps the entries that are enabled, allow its node
@@ -315,7 +324,7 @@ count, and allow spot if it asks for spot. It rejects the job if none is
 left, and prices it at the dearest one kept. `compute-server:status` checks
 each entry against EC2's own description of the instance type (vCPUs, GPU
 count and memory), and fails if an entry's price is below AWS's current list
-price, so a ceiling never understates.
+price, so a job's ceiling never understates.
 
 The release ships these, with x86 families only, since the image is x86:
 
@@ -325,15 +334,13 @@ The release ships these, with x86 families only, since the image is x86:
 | `gpu-small` | g6.xlarge (1 × L4, 24 GB, $0.80/h); g6e.xlarge (1 × L40S, 48 GB, $1.861/h); g4dn.xlarge (1 × T4, 16 GB, $0.526/h) | Development, small simulations, inference | 1 | yes |
 | `gpu-sim` | g6e.48xlarge (8 × L40S, $30.13/h); g6e.12xlarge (4 × L40S, $10.49/h) | Rendering simulators (Isaac Sim, RTX), GPU physics, search | 2 | yes |
 | `gpu-train` | g6e.48xlarge | Training that fits in 44 GB per GPU | 2 | yes |
-| `gpu-sim-large` | g6e.48xlarge, on demand only | Searches over more than 16 L40S | 4 | no, until the G quotas change |
-| `gpu-train-large` | p5.48xlarge (8 × H100, 80 GB, 192 vCPU, $55.04/h); p4d.24xlarge (8 × A100, 40 GB, 96 vCPU, $21.96/h); both on demand only | Large-model training | 2 | no, until the P quota is raised |
+| `gpu-sim-large` | g6e.48xlarge, on demand only | Searches over more than 16 L40S | 4 | no, until the owner chooses |
+| `gpu-train-large` | p5.48xlarge (8 × H100, 80 GB, 192 vCPU, $55.04/h); p4d.24xlarge (8 × A100, 40 GB, 96 vCPU, $21.96/h); both on demand only | Large-model training | 2 | no, until the owner chooses |
 
 Prices here are rounded; `limits.yaml` has AWS's exact list prices, and its
 comments say where they came from. Every profile allows 1440 minutes, and
-`cpu` has no spot, since no Standard spot quota is requested for the ceiling
-to count. `cpu` allows 3 nodes, not 4, because the server's node takes 8
-of the 64 Standard vCPUs. A 24 GB training profile (8 × A10G, g5.48xlarge) can
-be added as data if a project wants one.
+`cpu` has no spot while the Standard spot quota is unknown. A 24 GB training
+profile (8 × A10G, g5.48xlarge) can be added as data if a project wants one.
 
 Isaac Sim doesn't support GPUs without RT cores, such as A100 and H100, and
 names g6e for AWS, so anything that renders uses the G family. Unsure, and
@@ -341,36 +348,162 @@ checked when a project first needs it: whether T4's 16 GB suffices for a
 scene, and whether a simulator needs a newer driver than SkyPilot's AWS image
 has (the wrapper's check catches it; only a custom machine image fixes it).
 
-**Spending ceiling.** EC2's vCPU quotas cap what can run at once, per quota
-group. `compute-server:status` fills each group with its dearest enabled
-entry per vCPU and fails if the sum exceeds `daily_cap_usd` / 24, which is
-$416.67 an hour under D8. Per vCPU-hour, the dearest G entry is g6e.xlarge
-($0.465), the dearest P entry p5.48xlarge ($0.287), and Standard is about
-$0.05. As shipped:
+## Spend limits
 
-| Quota | Requested | Worst $/h |
-|---|---|---|
-| G and VT, on demand | 384 vCPUs | 178.66 |
-| G and VT, spot | 384 vCPUs | 178.66 |
-| Standard | 64 vCPUs | 3.23 |
-| P, on demand and spot | 0 | 0 |
-| **Total** | | **360.55, or $8,653 a day: under D8's cap** |
+Spend is limited in software. The account's EC2 vCPU quotas stay at their
+applied values, which are high, and limit nothing this plan relies on. Four
+layers each limit one thing, all in USD at on-demand list price, so each
+overstates what the negotiated rates bill:
 
-Enabling the large entries, against the same cap:
-
-| Change | Quotas: G on demand / G spot / P on demand | Worst $/h | Against $416.67/h |
+| Layer | What it limits | Where it runs | What it can't stop |
 |---|---|---|---|
-| `gpu-train-large`, 1 node | 384 / 384 / 192 | 415.59 | Under, by $1.08 |
-| `gpu-train-large`, 2 nodes | 384 / 384 / 384 | 470.63 | **Over** |
-| The same, with less G spot | 384 / 256 / 384 | 411.07 | Under |
-| `gpu-sim-large`, 4 nodes | 768 / 0 / 0 | 360.54 | Under, with no G spot |
-| 8 × p5.48xlarge (64 H100) | 0 / 0 / 1,536 | 443.55 | **Over, even with no G quota** |
+| 1. Per job | The job's ceiling must not exceed its `budget_usd` | Admin policy, on every launch; `dry-run` first | Provisioning and setup, about 10 minutes per node per attempt (unverified); a spot job's recoveries, each of which restarts its `timeout` |
+| 2. Burn rate and daily sum | The running jobs' burn rate, and the ceilings launched in the last 24 hours, against `spend:` in `limits.yaml` | Admin policy, on every launch | Launches that bypass the server, such as the owner's own AWS credentials; a spot job that recovers and runs past the time its ledger row stops counting |
+| 3. AWS Budgets action | At 100% of the daily budget's actual cost, applies `compute-jobs-deny-launch` to the server's role `compute-jobs-launcher` | AWS | Any running machine: it stops new launches, and the managed jobs' recoveries, but terminates nothing; AWS's cost data lags by up to a day |
+| 4. Report | Nothing: `compute-server:status` prints the burn rate, the last 24 hours' ceilings, and the quota-based ceiling | The owner's laptop | Anything; it never fails on spend |
 
-So the base and modest large runs fit under D8 by trading quotas between
-groups; anything like the last row needs a higher daily cap, which only the
-owner can set ([open decisions](#open-decisions)). Every job is still
-bounded by its own `budget_usd`, and the daily budget action is the
-backstop, since AWS budget data lags by up to a day.
+### The spend settings
+
+`spend:` in `limits.yaml` holds two numbers, both the owner's to set. The
+values shipped are a proposal:
+
+- `max_burn_usd_per_hour: 125`: the most the running jobs and the new one may
+  cost an hour. The dearest job the enabled profiles allow is a 2-node
+  `gpu-sim` or `gpu-train` job, at $60.26 an hour. $125 admits two of them, one
+  `gpu-small` job ($1.86) and one 3-node `cpu` job ($2.42), $124.80 in all,
+  and refuses a third large job.
+- `daily_cap_usd: 3000`: the most the ceilings of the jobs launched in any 24
+  hours may add up to, which is 24 × $125. It seldom binds before the burn
+  rate for jobs that run their full time; it binds on relaunches, because a
+  job that ends early still counts its whole ceiling for 24 hours. Two
+  24-hour, 2-node
+  `gpu-sim` launches ($1,446.30 each) use most of a day; an agent fits more
+  launches by asking for a shorter `max_runtime_minutes`.
+
+Enabling `gpu-sim-large` (4 nodes, $120.52 an hour) or `gpu-train-large` (2
+p5.48xlarge nodes, $110.08 an hour) leaves room for one such job beside small
+ones, so the owner revisits both numbers when enabling either.
+
+The template's `compute-cost` rule, decision D8 (a cap of $10,000 a day on all
+agents' compute, in the template repository), is the agents' rule, which
+they apply before launching. This repository's `spend.daily_cap_usd` is the
+cap the admin policy enforces. The owner keeps the two equal; this repository
+never edits D8. Until the owner changes one of them they differ, and the
+lower, `spend.daily_cap_usd`, is the one that binds.
+
+The AWS daily budget (step 9 of [Setup](#setup-for-the-owner)) is set to
+`spend.daily_cap_usd` in the console, by the owner. The server's $15 a day
+counts against it too, so it acts slightly early.
+
+### The admission check
+
+PR 4d builds this in the admin policy; nothing here is built yet.
+
+**When.** Only on the server, for request name `JOBS_LAUNCH` with
+`at_client_side` false. SkyPilot 0.14.0 applies the server's policy with
+`JOBS_LAUNCH` once per managed job, in `_launch` in `sky/jobs/server/core.py`
+(line 915). The cluster launches the job's controller makes, recoveries
+included, arrive as `JOBS_LAUNCH_CLUSTER` (`sky/execution.py`, line 315);
+the check passes them without recording anything.
+
+**The launch ledger.** A table, `compute_jobs_launches`, in the server's own
+database: the RDS database whose URI SkyPilot reads from
+`SKYPILOT_DB_CONNECTION_URI` (`sky/skypilot_config.py`, line 834). It has
+one row per accepted launch:
+
+| Column | Meaning |
+|---|---|
+| `job_name` | The job name |
+| `admitted_at` | When the policy accepted it, in Unix seconds |
+| `burn_usd_per_hour` | Its nodes × the dearest entry kept, per hour |
+| `ceiling_usd` | Its ceiling, as layer 1 computed it |
+| `counts_until` | `admitted_at` + (`max_runtime_minutes` + 30) × 60; the 30 minutes cover provisioning and setup |
+
+The policy creates the table if it is absent; SkyPilot's own migrations
+don't know it. PR 4d adds SQLAlchemy, which SkyPilot 0.14.0 already
+requires, to the policy's dependencies.
+
+**The rule.** In one transaction holding a PostgreSQL advisory lock
+(`pg_advisory_xact_lock`), so that two launches can't both pass on the same
+reading, with `now` in Unix seconds:
+
+```text
+running_burn_usd_per_hour = sum of burn_usd_per_hour over rows with counts_until > now
+recent_ceilings_usd       = sum of ceiling_usd over rows with admitted_at > now - 86400
+reject if running_burn_usd_per_hour + this job's burn > spend.max_burn_usd_per_hour
+reject if recent_ceilings_usd + this job's ceiling   > spend.daily_cap_usd
+otherwise insert this job's row and accept
+```
+
+**Refusal.** The policy raises, SkyPilot rejects the request, and the client
+reports it as `kind=rejected` with exit 1, as for any other refusal by the
+policy. The message gives the numbers and what to do:
+
+```text
+kind=rejected
+spend limit: running jobs cost $120.52 an hour; this job's $60.26 would make it
+$180.79, over spend.max_burn_usd_per_hour $125. Wait for a job to end, or ask
+the owner to raise the limit.
+```
+
+The daily refusal names the 24-hour sum, `spend.daily_cap_usd`, and the time,
+in UTC, when the oldest counted launch leaves the window. If the ledger can't
+be read or written, the policy rejects the launch, naming the database error.
+
+**What it counts.** It overcounts: a job that ends early counts toward the
+burn rate until `counts_until`, and toward the daily sum for 24 hours, and so
+does a launch the policy accepted that SkyPilot then failed. It undercounts a
+spot job that recovers and runs past `counts_until`, and any launch that
+bypasses the server.
+
+**Why a ledger, not SkyPilot's job table.** SkyPilot 0.14.0 gives a policy
+only the request: the task, the config, the request's name and options, the
+user, and the client's version (`UserRequest` in `sky/admin_policy.py`;
+[admin policy](https://docs.skypilot.co/en/latest/cloud-setup/policy.html)).
+It passes no job or cluster state. The documentation shows two ways to use
+state anyway. `GPUStaticQuotaPolicy` calls `sky.status()` through the SDK from
+inside a server-side policy, for cluster launches, and is called "an
+educational example and not a production-ready policy". `RateLimitLaunchPolicy`
+keeps its own table through SQLAlchemy and says its connection string can
+point at PostgreSQL. The ledger follows the second. Reading the managed-jobs
+table through the SDK from inside a jobs launch is unverified, because the
+endpoint and token of a client inside the server are unknown. If PR 4d shows
+it works, an optional refinement stops counting a row's burn once
+`sky jobs queue` reports its job ended; the daily sum is unchanged.
+
+**Fallback**, if the policy can't use the database. The client applies the
+same two limits before submitting: `launch` calls `sky.jobs.queue_v2` through
+the SDK, for jobs submitted in the last 24 hours. A job that hasn't ended
+burns its node count × its instance type's price in `limits.yaml`, read from
+the queue's `resources` field, whose format is unverified. The queue holds no
+ceilings, so the daily sum counts each job's burn × its `job_duration`, its
+cost so far, which is weaker than the server's rule. The check is advisory,
+since a caller could skip it, but the agents' only path to the server is the
+client, and layer 3 still applies. A refusal by the client would widen
+`rejected`'s meaning, which needs the template's agreement
+([open decisions](#open-decisions)).
+
+### The quota-based ceiling
+
+`compute-server:status` reports, as information, what the enabled entries
+could cost an hour with every quota group full of its dearest entry per vCPU:
+the exposure if launches bypassed the server. It fails on no value. Per
+vCPU-hour, the dearest G entry is g6e.xlarge ($0.465), the dearest P entry
+p5.48xlarge ($0.287), and Standard is about $0.05. As shipped:
+
+| Quota group | Applied vCPUs | Worst $/h |
+|---|---|---|
+| G and VT, on demand | 768 | 357.31 |
+| Standard, on demand | 1,152 | 58.06 |
+| P, on demand | 768 | 0, with no P entry enabled |
+| G and VT, P, and Standard spot | placeholder: 0 | 0 |
+| **Total** | | **415.37, or $9,969 a day** |
+
+Enabling `gpu-sim-large` leaves the total unchanged; enabling
+`gpu-train-large` makes it $635.53; a G spot quota of 768 makes it $772.68.
+The account's other families (DL, F, High Memory, HPC, Inf, Trn, X) have
+quotas too, listed in [Setup](#setup-for-the-owner), but no profile uses
+them, so the table omits them.
 
 ## The job image
 
@@ -827,8 +960,12 @@ with the template ([Proposed v0.1](#proposed-v01-versioned-formats)).
   and the archive's `archive.json` marker.
 - `status` changes nothing. It checks that a request without a token gets
   401, that the `agents` token can't change settings, that the policy rejects
-  an over-limit job, that the budget action exists, the server's version,
-  `limits.yaml`'s entries, and the quota ceiling.
+  an over-limit job, that the budget action exists, the server's version, and
+  `limits.yaml`'s entries. It also prints, as information that fails
+  nothing, the burn rate and the last 24 hours' ceilings as the launch ledger
+  counts them, read inside the server's pod with `kubectl exec` since the
+  database is private, beside `spend:`, and the
+  [quota-based ceiling](#the-quota-based-ceiling) table.
 - Only a person runs them. The template's `compute-cost` rule update says so
   for agents.
 
@@ -864,12 +1001,14 @@ PR 13.
 1. Create an AWS account, `agent-jobs`, under the negotiated agreement, and
    sign in to it with IAM Identity Center:
    <https://console.aws.amazon.com/organizations/v2/home/accounts>.
-2. In `us-east-1`, request vCPU quotas: "Running On-Demand G and VT
-   instances" 384, "All G and VT Spot Instance Requests" 384, and "Running
-   On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances" 64. Leave
-   "Running On-Demand P instances" at 0. A new account starts at 0 for G and
-   P and 5 for Standard
-   ([AWS](https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-instance-quotas.html)):
+2. Keep the account's existing vCPU quotas; spend is limited in software
+   ([Spend limits](#spend-limits)). Applied in `us-east-1` on 2026-10-15:
+   On-Demand G and VT 768, P 768, Standard 1,152, DL 96, F 128, High Memory
+   448, HPC 768, Inf 128, Trn 256, and X 128. `limits.yaml` mirrors the three
+   that profiles use. The three spot quotas, "All G and VT Spot Instance
+   Requests", "All P Spot Instance Requests", and "All Standard (A, C, D, H,
+   I, M, R, T, Z) Spot Instance Requests", are placeholders, 0 in
+   `limits.yaml`, until you read them and replace the placeholders:
    <https://console.aws.amazon.com/servicequotas/home/services/ec2/quotas>.
 3. Pick the server's host name, such as `skypilot.<domain>`, and create a
    Route 53 hosted zone for the domain, registering one (about $15 a year) if
@@ -901,34 +1040,32 @@ PR 13.
    `COMPUTE_JOBS_AWS_REGION` (`us-east-1`):
    <https://github.com/arjunbhargava/foundation-compute/settings/environments/new>.
    Then rerun the image workflow for the latest tag, from the Actions tab.
-9. Create a daily cost budget, `compute-jobs-daily`, of $10,000, with email
-   alerts at 50% and 80%, and an action at 100% of actual cost that applies
-   `compute-jobs-deny-launch` to `compute-jobs-launcher`:
+9. Create a daily cost budget, `compute-jobs-daily`, of `spend.daily_cap_usd`
+   ($3,000 as shipped), with email alerts at 50% and 80%, and an action at
+   100% of actual cost that applies `compute-jobs-deny-launch` to
+   `compute-jobs-launcher`:
    <https://console.aws.amazon.com/costmanagement/home#/budgets/create>.
-   Alerts alone don't stop spend; the action and the quotas do.
+   That AWS accepts an action on a daily budget is unverified. When you
+   change `spend.daily_cap_usd`, change this number in the console too. The
+   action stops new launches but no running machine.
 10. Run `MISE_ENV=admin mise run compute-server:status`; it must pass.
 11. If Cursor's agent network allowlist is on, add the server's host name and
     `<bucket>.s3.us-east-1.amazonaws.com`.
 12. Approve the spike's budget in PR 15, then follow
     [How the owner verifies](#how-the-owner-verifies).
 
-Optional, later, only when a project needs a disabled profile. Each changes
-the ceiling, so enable the entries in `limits.yaml`, rerun step 10, and if it
-fails, see the cap under [open decisions](#open-decisions):
+Optional, later, only when a project needs a disabled profile or more nodes.
+The applied quotas already fit each of these, so none needs a quota request:
+edit `limits.yaml`, check that `spend:` still admits the job
+([The spend settings](#the-spend-settings)), release, and rerun step 10.
 
-13. For `gpu-sim-large` (4 × g6e.48xlarge): "Running On-Demand G and VT
-    instances" 768, and "All G and VT Spot Instance Requests" 0:
-    <https://console.aws.amazon.com/servicequotas/home/services/ec2/quotas>.
-14. For `gpu-train-large`: "Running On-Demand P instances", 192 per
-    p5.48xlarge node (96 per p4d.24xlarge): same link. A person at AWS
-    reviews accelerator quota requests, and not instantly (a community
-    article on
-    [AWS Builder Center](https://builder.aws.com/content/3JsNTHZYZ3ZNq7V6Eq8ontfZVMF/gpus-on-aws-above-the-cluster));
-    that P requests are often declined for a new account is unverified, so
-    ask well before a project depends on it. Capacity is separate from
-    quota: on-demand P capacity is often unavailable even with quota.
-15. For a `cpu` profile with more nodes: "Running On-Demand Standard ..."
-    96 lets `cpu` allow 4 nodes beside the server's: same link.
+13. For `gpu-sim-large`, enable its entry. Its 4 × 192 vCPUs fill the whole
+    G and VT on-demand quota of 768, so no other G job runs beside it.
+14. For `gpu-train-large`, enable its entries. The P quota of 768 fits 4
+    p5.48xlarge nodes. Capacity is separate from quota: on-demand P
+    capacity is often unavailable even with quota.
+15. For a `cpu` profile with more nodes, raise its `max_nodes`; the Standard
+    quota of 1,152 fits many more beside the server's node.
 
 ## Cost
 
@@ -951,8 +1088,14 @@ unknown amount, so each is a ceiling.
   10 GB per image and 10 images kept, at most about $10 a month.
 - **Spike**: about $3.50 a full pass, under the $10 target
   ([below](#the-spike)).
-- **Worst case**: the quotas cap it at $360.55 an hour as shipped, under
-  D8's $416.67 ([spending ceiling](#hardware-profiles)).
+- **Worst case**, through the server: `spend.max_burn_usd_per_hour` ($125 an
+  hour as shipped) at once, and launches whose ceilings add up to
+  `spend.daily_cap_usd` ($3,000) in any 24 hours, plus provisioning time
+  and spot recoveries beyond each `timeout`
+  ([Spend limits](#spend-limits)). Bypassing the server, for example with
+  the owner's own AWS credentials, only the quotas bound it: $415.37 an
+  hour for the shipped profiles' families, more for families no profile
+  uses, until the budget action stops new launches, up to a day late.
 
 ## Pull requests
 
@@ -967,7 +1110,8 @@ admin policy, and provisioning run on Opus; the rest on Sonnet. A PR marked
 | 1 | Package layout: the three distributions as a uv workspace, Python 3.13 for the CLI, the placeholder package removed, the API pages | Opus | yes: package split and Python pin | `mise run check` and `mise run docs` pass; AC 17 |
 | 2 | `compute-jobs` with its four commands, configuration checks, and the failure kinds with their top-level handler | Sonnet | yes: failure kinds, v0.1 pending the template | AC 1; AC 2 for argument errors; AC 23 for `not_configured`, `argument_error`, and `internal_error` |
 | 3 | Versioned schemas: the five JSON Schema files, fixtures, and the readers' version check | Opus | yes: formats, v0.1 pending the template | AC 13 |
-| 4 | The job file and job name, the admin policy, `limits.yaml` as the compute list, and the ceiling check | Opus | yes: limits bound spend | AC 5, 6, 14 |
+| 4 | The job file and job name, the admin policy, `limits.yaml` as the compute list with `spend:`, and the quota-based ceiling as information | Opus | yes: the compute list | AC 5, 14; AC 6 without its spend check |
+| 4d | The [admission check](#the-admission-check): the launch ledger and the two spend limits | Opus | yes: limits spend | AC 6's spend check |
 | 5 | `dry-run` and `launch`, with a fake SkyPilot SDK | Sonnet | | AC 2, 7, and 22 and 23 for their kinds; launch submits the expected task and refuses unpushed changes |
 | 6 | `progress`, `observe` (with `--json` fixed), and `cancel` | Sonnet | | AC 2, 10, and 22 and 23 for their kinds |
 | 7 | The wrapper, run record, archive, and distributed variables, with S3 faked by moto | Sonnet | | AC 9, 11, 12 |
@@ -975,7 +1119,7 @@ admin policy, and provisioning run on Opus; the rest on Sonnet. A PR marked
 | 9 | The three examples, their local CI dry runs, the `job:*` mise tasks, and each README's end-to-end sequence | Sonnet | | AC 16 |
 | 10 | The image and `compute-image.yml`: build and smoke test on PRs, attest and push to ECR on tags | Sonnet | yes: publishes through a cloud role | AC 18 |
 | 11 | Releases: `release.yml`, a ruleset protecting `v*` tags, release notes naming the contract, schema, and SkyPilot versions; tag `v0.1.0` | Sonnet | yes: release policy | AC 21; the template can pin `v0.1.0` |
-| 12 | IAM policy files, `mise.admin.toml`, `compute-server:status` | Opus | yes: IAM | AC 3, 15 |
+| 12 | IAM policy files, `mise.admin.toml`, `compute-server:status`, which reports the burn rate and the quota-based ceiling and fails on neither | Opus | yes: IAM | AC 3, 15; status prints the ceiling table from `spending_ceiling` |
 | 13 | Provisioning: `eksctl.yaml`, `values.yaml`, `config.yaml`, the ECR repository, and `compute-server:provision` for one node | Opus | yes: provisioning | AC 4; `helm template` renders offline; provision refuses without the profile or the typed name |
 | 14 | The `compute-server-admin` skill, drafted for the owner | Sonnet | yes: people write skills (F2) | The owner has edited it |
 | 15 | The spike: the three examples through the real server, verified by the owner; this page and `docs/architecture.md` rewritten as built | Opus | yes: compute spend | AC 19, 20 |
@@ -1072,7 +1216,14 @@ and 20.
    without a release-tag attestation, and a config setting
    `remote_identity` or `admin_policy`; and rewrites each accepted job with
    `remote_identity: compute-jobs-job`, the ECR credential variables, the
-   `timeout`, and the checkpoint mount.
+   `timeout`, and the checkpoint mount. Its spend check, against a ledger in
+   in-memory SQLite with a fixed clock: accepts a launch that brings the burn
+   rate or the 24-hour sum of ceilings exactly to its `spend:` limit, and
+   rejects one a cent over, as `kind=rejected` naming both numbers; stops
+   counting a row's burn after `counts_until` and its ceiling after 24
+   hours; records only accepted server-side `JOBS_LAUNCH` requests, never
+   `JOBS_LAUNCH_CLUSTER` or client-side ones; and rejects when the ledger
+   can't be read.
 7. `dry-run` prints the maximum cost and runs the smoke test with no GPU
    visible; with `smoke: false` it skips it and exits 0 for a valid file; it
    warns on spot without checkpoints.
@@ -1098,10 +1249,10 @@ and 20.
     each reader accepts the current and previous major and refuses the next,
     naming the major it saw; `progress.json` carries `schema` and
     `schema_version` with one value.
-14. `limits.yaml`'s entries validate; the ceiling as shipped is $360.55 an
-    hour; enabling `gpu-train-large` with `p_on_demand: 384` and the other
-    quotas as shipped ($470.63 an hour) fails the check against
-    `daily_cap_usd`, and passes with `g_vt_spot: 256` ($411.07).
+14. `limits.yaml`'s entries validate, and `spend:` holds both limits, each
+    above 0; the quota-based ceiling as shipped is $415.37 an hour, $635.53
+    with `gpu-train-large` enabled, and $772.68 with `g_vt_spot: 768`; no
+    ceiling, however large, fails a test.
 15. The job role writes only under `machines/${aws:userid}/`, `index/`, and
     `checkpoints/`, and pulls only from `compute-jobs/job`; the push role
     trusts only the `release` environment and pushes only there.
@@ -1149,7 +1300,7 @@ the PR that builds it moves it out of this table.
 
 | Item | Until then | Freed when |
 |---|---|---|
-| The 15-minute watch workflow: terminating machines past their deadline, or all once the budget action fires; cancelling the jobs of closed, unmerged PRs; an authoritative `index/` from EC2 tags | The in-job `timeout`, SkyPilot's teardown, the quotas, and the budget action, which blocks launches but stops no machine; the owner can terminate machines in the EC2 console | Jobs run with no person watching, a machine outlives its job, or a job runs over a day |
+| The 15-minute watch workflow: terminating machines past their deadline, or all once the budget action fires; cancelling the jobs of closed, unmerged PRs; an authoritative `index/` from EC2 tags | The in-job `timeout`, SkyPilot's teardown, the spend limits, and the budget action, which blocks launches but stops no machine; the owner can terminate machines in the EC2 console | Jobs run with no person watching, a machine outlives its job, or a job runs over a day |
 | The `compute-job:` check run, and the Cursor Automation that starts a follow-up agent from it | Agents poll `job:observe` | A job outlasts the agent that launched it and someone must act on its result |
 | Copier's `compute` question (the template's), and `compute_server_admin` | Projects pin the client by hand; one repository, this one, runs the server | The first project made from the template needs compute jobs |
 | Project images: `compute/image.yaml`, vendor bases such as Isaac Sim's, each in its own repository in the same ECR registry | Every job runs this repository's image | A project needs a system package, CUDA version, or simulator the image lacks |
@@ -1166,34 +1317,41 @@ the PR that builds it moves it out of this table.
 2. **The v0.1 additions**
    ([Proposed v0.1](#proposed-v01-versioned-formats)) need the template's
    orchestrator, including its skill reading the current and previous major.
-3. **A higher daily cap.** The shipped quotas fit under D8's $10,000 a day;
-   `gpu-train-large` at 2 nodes fits only with less G spot quota, and
-   training on 8 or more p5.48xlarge needs a cap above $10,000 a day
-   ($443.55 an hour, $10,645 a day, for 8 with no G quota at all). Only the
-   owner can raise it, in the template's D8; until then `status` fails such a
-   change.
-4. **Server config in the dashboard**, since Helm can't set it with RDS: is a
+3. **The burn rate in `dry-run`** (proposed, not required): when both server
+   variables are set and the server answers within 10 seconds, `dry-run`
+   would print one more line after the maximum cost, such as
+   `Running now: $60.26 an hour of spend.max_burn_usd_per_hour $125`, computed
+   as in the admission check's fallback, and nothing on any error, with
+   its exit codes unchanged. It contradicts "`dry-run` never calls SkyPilot"
+   in [Variables](#variables) and AC 1, so it needs the owner's agreement.
+4. **The fallback's refusal kind.** If PR 4d falls back to the client's
+   check ([admission check](#the-admission-check)), a client-side spend
+   refusal would be `kind=rejected`, widening its meaning from "the server
+   or its admin policy refused" to include a refusal the client makes on
+   the server's data. Changing a kind's meaning needs the template's
+   agreement; the server-side check needs no change.
+5. **Server config in the dashboard**, since Helm can't set it with RDS: is a
    scripted way to apply and read `config.yaml` available, so `status` can
    compare it? Unverified; otherwise `status` checks behaviour (the policy
    rejects an over-limit job).
-5. **The chart's persistent volume**: keep it for logs (on EKS it needs the
+6. **The chart's persistent volume**: keep it for logs (on EKS it needs the
    EBS CSI driver add-on
    ([deploy](https://docs.skypilot.co/en/latest/reference/api-server/api-server-admin-deploy.html))
    and a node group in the volume's zone), or turn it off with
    `storage.enabled=false` and rely on RDS, `jobs.bucket`, and the archive.
    Which state, if any, lives only on it is unverified.
-6. **IRSA**, if SkyPilot rejects it: accept the rotated key in a Kubernetes
+7. **IRSA**, if SkyPilot rejects it: accept the rotated key in a Kubernetes
    secret, or wait for support.
-7. **Tag immutability**: a ruleset blocking updates and deletion of `v*` tags
+8. **Tag immutability**: a ruleset blocking updates and deletion of `v*` tags
    (PR 11), or pins by commit, which mise also accepts but reads worse.
-8. **The attestation check**: the policy asks GitHub's attestations API at
+9. **The attestation check**: the policy asks GitHub's attestations API at
    launch, cached per digest, or the release workflow records each attested
    digest somewhere the policy reads without GitHub (such as an ECR tag
    only the push role can write).
-9. **PyTorch in CI** for `examples/multi_node/`: the CPU wheel is a large
+10. **PyTorch in CI** for `examples/multi_node/`: the CPU wheel is a large
    download for every CI run; the alternative is a rendezvous over plain
    sockets that shows the same variables but not `torchrun`.
-10. **Offline chart checks in CI**: a job with `MISE_ENV=admin` and no
+11. **Offline chart checks in CI**: a job with `MISE_ENV=admin` and no
     credentials that runs `helm template` would test PR 13 in CI, but puts the
     admin tools in CI, which the plan avoided.
 
@@ -1208,6 +1366,12 @@ the base first, with everything under [Deferred](#deferred) left for later.
 
 In a follow-up the same day: `multi-node` accepts one node; profiles are a
 compute list in data, with the P family and larger fan-out in the base,
-disabled until their quotas are raised; images in a private ECR repository;
+disabled until their quotas are raised (superseded below); images in a private ECR repository;
 versioned schemas; and the three reference runs in the base, run by the
 spike and verified by the owner.
+
+Later the same day: the account's AWS vCPU quotas stay at their applied
+values and don't limit spend; the $10,000 a day figure was arbitrary; spend
+is limited in software, by the four layers in [Spend limits](#spend-limits);
+and the owner sets `spend:` in `limits.yaml`, the spot quotas, and the AWS
+daily budget.
