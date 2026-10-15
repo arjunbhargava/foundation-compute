@@ -33,13 +33,19 @@ not jobs run (plan, [Cost](compute-jobs.md#cost) and
 registered, adds about $15 a year.
 
 **Job cost**: nothing runs until the owner approves a compute budget for it.
-Each job has its own `budget_usd`, which the server enforces. EC2 vCPU
-quotas cap what can run at once: at the account's on-demand quotas,
-$415.37 an hour at list price, plus whatever the spot quotas allow
-([step 3](#3-quotas); the plan's own figure, $360.55, assumed lower
-quotas, in [Hardware profiles](compute-jobs.md#hardware-profiles)). A daily
-budget of
-$10,000 blocks new machines when reached.
+Spend is limited in software, not by EC2 quotas (the plan's "Spend limits",
+[PR #20](https://github.com/arjunbhargava/foundation-compute/pull/20),
+pending):
+
+- each job's ceiling must not exceed its own `budget_usd`;
+- the server's admin policy keeps a ledger of launches, and refuses one that
+  would take the running jobs' burn rate over `spend.max_burn_usd_per_hour`,
+  or the last 24 hours' launches over `spend.daily_cap_usd`, both in
+  `limits.yaml`;
+- an AWS daily budget of `spend.daily_cap_usd` blocks new machines when
+  reached (step 7).
+
+The owner sets both numbers; the proposal is $125 an hour and $3,000 a day.
 
 ## Terms
 
@@ -85,7 +91,7 @@ In both options, only you can do step 1. The rest can be either of you.
 |---|---|---|---|
 | 1 | Create the account | You | `organizations:CreateAccount`, in the management account or a delegated administrator |
 | 2 | Option A only: permission set and assignment | You | `sso:CreatePermissionSet`, `sso:PutInlinePolicyToPermissionSet`, `sso:AttachManagedPolicyToPermissionSet`, `sso:CreateAccountAssignment`, `sso:ProvisionPermissionSet`, and their `Delete` counterparts afterwards |
-| 3 | Quotas | Either | `servicequotas:` statement `Quotas` below |
+| 3 | Quotas: read, never lower | Either | `servicequotas:` statement `Quotas` below |
 | 4 | Route 53 hosted zone | Either | statement `HostedZone`; registering a domain also needs `route53domains:RegisterDomain` (you only) |
 | 5 | GitHub OIDC provider | Either | `iam:CreateOpenIDConnectProvider`, `iam:TagOpenIDConnectProvider`, in statement `EksctlAndComputeJobsIam` |
 | 6 | Provisioning (pending PR 13) | Either | the two AWS managed policies and the whole inline policy below |
@@ -127,45 +133,37 @@ permissions boundary would narrow it (see
 
 ### 3. Quotas
 
-The owner read the account's applied quotas from its Service Quotas page,
-in `us-east-1`, on 2026-10-15. Every on-demand value is at or above the
-plan's minimum, so no on-demand increase is needed. **Do not lower any of
-these quotas.** The spot values are still to come; request a spot increase
-only where the value is below the minimum.
+Quotas do not limit spend in this design; the software limits above do.
+The quotas are the owner's, kept high so that jobs aren't refused by EC2.
+**Do not lower any quota.**
 
-Quotas are per account. If `agent-jobs` is a different account from the one
-these values came from, it starts at AWS's defaults (0 for G and P, 5 for
-Standard;
-[AWS](https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-instance-quotas.html))
-and needs the increases.
+The owner read these applied values from the Service Quotas page, in
+`us-east-1`, on 2026-10-15:
 
-| EC2 quota, in vCPUs | Plan's minimum | Applied value [AWS default] |
-|---|---|---|
-| Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances | 64 | 1,152 [5] |
-| Running On-Demand G and VT instances | 384 | 768 [0] |
-| Running On-Demand P instances | 0 | 768 [0] |
-| All Standard (A, C, D, H, I, M, R, T, Z) Spot Instance Requests | none | `<fill in>` |
-| All G and VT Spot Instance Requests | 384 | `<fill in>` |
-| All P Spot Instance Requests | 0 | `<fill in>` |
+| EC2 quota, in vCPUs | Applied value [AWS default] |
+|---|---|
+| Running On-Demand G and VT instances | 768 [0] |
+| Running On-Demand P instances | 768 [0] |
+| Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances | 1,152 [5] |
+| All G and VT Spot Instance Requests | unknown: `<fill in>` |
+| All P Spot Instance Requests | unknown: `<fill in>` |
+| All Standard (A, C, D, H, I, M, R, T, Z) Spot Instance Requests | unknown: `<fill in>` |
 
 No profile uses the other on-demand quotas, which also must not be lowered:
 DL 96, F 128, High Memory 448, HPC 768, Inf 128, Trn 256, X 128.
 
-Spot quotas are at
+Quotas are per account. If `agent-jobs` is a new account, it starts at
+AWS's defaults
+([AWS](https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-instance-quotas.html)),
+not at these values, and the owner will tell you what to request (see
+[Questions](#questions-for-the-administrator)).
+
+`limits.yaml` mirrors these values only so that `compute-server:status` can
+report what jobs could cost an hour if launches bypassed the server. It
+reports that figure and never fails on it.
+
+Read or request quotas at
 <https://console.aws.amazon.com/servicequotas/home/services/ec2/quotas>.
-
-`compute/server/admin_policy/src/compute_jobs_admin_policy/limits.yaml`
-mirrors these values, because they cap how many machines can run at once and
-so how much can be spent in an hour. `compute-server:status` multiplies each
-by the dearest instance type allowed for it and fails if the total exceeds
-the $10,000 daily cap divided by 24, $416.67 an hour.
-
-With these values, the ceiling is already $415.37 an hour before spot is
-counted: 768 G vCPUs at g6e.xlarge's $0.465 per vCPU-hour, plus 1,152
-Standard vCPUs at m7i.4xlarge's $0.0504. The disabled P entries add nothing.
-So any G and VT spot quota above 2 vCPUs makes `compute-server:status` fail
-until the owner turns off spot on the G profiles in `limits.yaml`, so that
-the G spot quota counts as $0, or raises the cap. That is the owner's decision, not a reason to lower a quota.
 
 ### 4. Route 53 hosted zone
 
@@ -232,10 +230,15 @@ The plan doesn't name one; this page proposes `compute-jobs-budget-action`.
 
 2. After provisioning, open
    <https://console.aws.amazon.com/costmanagement/home#/budgets/create>.
-   Create a daily cost budget, `compute-jobs-daily`, of $10,000, with email
-   alerts at 50% and 80% of actual cost.
+   Create a daily cost budget, `compute-jobs-daily`, with email alerts at
+   50% and 80% of actual cost. Its amount is `spend.daily_cap_usd` in
+   `limits.yaml`: the owner will tell you the number (proposed: $3,000 a
+   day). The server's $15 a day counts against it too.
 3. Add an action at 100% of actual cost, run automatically: apply the IAM
    policy `compute-jobs-deny-launch` to the role `compute-jobs-launcher`.
+   That AWS accepts an action on a daily budget is unverified.
+4. When the owner changes `spend.daily_cap_usd`, change the budget to
+   match.
 
 ### 8. Cost anomaly alert (optional)
 
@@ -427,10 +430,11 @@ sets:
   which can only read the bucket and is rotated quarterly.
 - **`us-east-1` only.** The policy's `OnlyUsEast1` statement enforces it for
   the owner; an SCP on the account would enforce it for everyone.
-- **The budget action.** At $10,000 of actual cost in a day it attaches
-  `compute-jobs-deny-launch` (deny `ec2:RunInstances` and
+- **The budget action.** At `spend.daily_cap_usd` of actual cost in a day
+  it attaches `compute-jobs-deny-launch` (deny `ec2:RunInstances` and
   `ec2:StartInstances`) to the server's role. It stops no running machine,
-  and AWS budget data lags by up to a day, so the quotas are the hard cap.
+  and AWS budget data lags by up to a day, so it is the backstop behind the
+  server's own limits. Quotas are not a spend limit here.
 - **Teardown.** The plan has no teardown task, and PR 13 doesn't exist.
   Until then, in this order (unverified):
   1. `helm uninstall` the server, so the controller deletes the load
@@ -444,20 +448,21 @@ sets:
 
 ## Questions for the administrator
 
-1. **Account**: is `agent-jobs` the account whose quotas are in step 3? If
-   it is a new account, it starts at AWS's defaults. Which organizational
-   unit?
-2. **SCPs**: do any deny `eks:*`, `iam:CreateOpenIDConnectProvider`,
+1. **Account**: which organizational unit holds `agent-jobs`?
+2. **Quota source**, for the owner to answer: do the quota values in step 3
+   come from `agent-jobs` itself, or from another account? If another, and
+   `agent-jobs` is new, it starts at AWS's defaults and needs requests.
+3. **SCPs**: do any deny `eks:*`, `iam:CreateOpenIDConnectProvider`,
    `iam:CreateUser`, `iam:CreateAccessKey` (the read-only key), service-linked
    roles, or `us-east-1`?
-3. **Permissions boundary**: should roles created in the account require
+4. **Permissions boundary**: should roles created in the account require
    one? eksctl supports boundaries in its config file; PR 13 would need to set
    them.
-4. **Names**: do `compute-jobs-*`, `eksctl-*`, or `agent-jobs` clash with
+5. **Names**: do `compute-jobs-*`, `eksctl-*`, or `agent-jobs` clash with
    anything in your organization?
-5. **Domain**: which domain or subdomain holds the host name, and who
+6. **Domain**: which domain or subdomain holds the host name, and who
    controls its DNS?
-6. **After setup**: `compute-server:status` and each upgrade need access to
+7. **After setup**: `compute-server:status` and each upgrade need access to
    the account. Should the owner keep a narrower permission set, or get
    `ComputeJobsSetup` again for each upgrade? By EKS's default, the cluster
    grants Kubernetes admin to the role that created it, an `AWSReservedSSO_*` role
