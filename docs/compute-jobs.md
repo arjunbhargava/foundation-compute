@@ -977,8 +977,9 @@ and 20.
     naming the major it saw; `progress.json` carries `schema` and
     `schema_version` with one value.
 14. `limits.yaml`'s entries validate; the ceiling as shipped is $360.55 an
-    hour; enabling `gpu-train-large` at 2 nodes with the shipped quotas fails
-    the check against `daily_cap_usd`.
+    hour; enabling `gpu-train-large` with `p_on_demand: 384` and the other
+    quotas as shipped ($470.63 an hour) fails the check against
+    `daily_cap_usd`, and passes with `g_vt_spot: 256` ($411.07).
 15. The job role writes only under `machines/${aws:userid}/`, `index/`, and
     `checkpoints/`, and pulls only from `compute-jobs/job`; the push role
     trusts only the `release` environment and pushes only there.
