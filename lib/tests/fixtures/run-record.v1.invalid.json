@@ -1,0 +1,5 @@
+{
+  "schema_version_missing": {"exit_code": 0},
+  "schema_version_another_major": {"schema_version": 2},
+  "not_an_object": [1]
+}
