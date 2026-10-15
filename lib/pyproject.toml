@@ -7,6 +7,11 @@ description = "Code that runs inside a compute job: the job file, progress repor
 requires-python = ">=3.12"
 dependencies = []
 
+[project.optional-dependencies]
+fanout = [
+    "ray==2.59.0",
+]
+
 [build-system]
 requires = ["uv_build>=0.12.23,<0.13.0"]
 build-backend = "uv_build"
