@@ -26,11 +26,7 @@ the same thing:
 | `mise run test:needs-human-review-script` | Check that `.github/scripts/needs_human_review.sh` fails a PR with the `needs-human-review` label and passes one without. |
 | `mise run test:owned-paths-script` | Check which changed paths `.github/scripts/owned_paths.sh` finds in `.github/CODEOWNERS`, and when it can't tell, with a fake `gh`. |
 | `mise run test:mutate-script` | Check which files `.github/scripts/mutate.sh` mutates and what it reports, with fake mutation tools. |
-<<<<<<< before updating
-| `mise run mutate` | Mutation-test the code changed since the merge base with `origin/main`, and report each mutant no test caught. `mutate:<language>` runs one language. Python reports each distribution separately, and includes the changed `.github/scripts/*.py`; the shell scripts there have no mutation tool. `check` doesn't run it, because it's slow. |
-=======
 | `mise run mutate` | Mutation-test the code changed since the merge base with `origin/main`, and report each mutant no test caught, or pass with one line saying that no changed file holds mutable code. `mutate:<language>` runs one language. Only the template repository, which alone has `copier.yml`, also mutates the changed `.github/scripts/*.py`, and no tool mutates the shell scripts there. `check` doesn't run it, because it's slow. |
->>>>>>> after updating
 | `mise run docs` | Build the documentation site. |
 | `mise run test:docs` | Check that `docs/conf.py` points the links in `README.md` and `AGENTS.md` at the site's pages, turns those to other repository paths into text, and still fails on a path that is missing or outside the repository, by building a small site. |
 | `mise run spend` | Report tokens and cost per Cursor cloud agent run over the last 7 days, from the Cursor Admin API, with each run's task, repository, and branch and a subtotal per repository; needs `CURSOR_ADMIN_API_KEY`, and `CURSOR_API_KEY` for the labels. Arguments after `--` go to the script: `mise run spend -- --since 2026-09-26`. |
@@ -41,7 +37,6 @@ language the project has: Python.
 
 ## Where code lives
 
-<<<<<<< before updating
 - Three Python distributions, each with its code in `src/`, its tests in
   `tests/`, and its own `pyproject.toml`, in one uv workspace whose root is
   the root `pyproject.toml`:
@@ -56,31 +51,17 @@ language the project has: Python.
 - `pyproject.toml`: the workspace, the client's dependencies, and the tool
   settings for all three. `uv.lock` locks the dependencies of all three, and
   `.python-version` pins Python 3.13, the newest SkyPilot 0.14.0 supports.
-=======
-- `src/foundation_compute/`: the Python package, tested in `tests/`. `quadrature.py`
-  is the template's example, there to prove the checks work. To delete it,
-  delete `src/foundation_compute/quadrature.py` and `tests/test_quadrature.py`, and
-  keep `src/foundation_compute/__init__.py`, which `docs/api/python.md` and
-  `[tool.importlinter]` in `pyproject.toml` name. `mise run check` and
-  `mise run mutate` pass with a package that holds only docstrings.
-- `pyproject.toml`: Python dependencies and tool settings. `uv.lock` locks
-  the dependencies, and `.python-version` pins Python.
 - `conftest.py`: adds the `src/` and `tests/` of each uv workspace member to
   the paths pytest runs when it is given none.
-- More than one Python distribution: list each as a member in
-  `[tool.uv.workspace]` in `pyproject.toml`, and give it a `pyproject.toml`,
-  `src/<package>/`, and `tests/` of its own, as the root has. One `uv.lock`
-  and one `.venv` then cover all of them, and the tests, `docs/build.sh`,
-  `docs/conf.py`, and `mise run mutate` take their list of distributions from
-  the members, and `mutate` reports each separately; a member without a
-  `src/` is skipped. A new member also needs
-  its package added by hand to the toctree in `docs/api/python.md` and to
-  `[tool.importlinter]`, and, if it has a `lib/` directory, `source_paths =
-  ["src"]` under `[tool.mutmut]` in its own `pyproject.toml`, because mutmut
-  would mutate `lib/`. pytest imports test files by path, so two members may
-  have a test file of the same name, and a test can't import a helper beside
-  it by name.
->>>>>>> after updating
+- Another Python distribution: list it as a member in `[tool.uv.workspace]`
+  in `pyproject.toml`, and give it a `pyproject.toml`, `src/<package>/`, and
+  `tests/` of its own. The tests, `docs/build.sh`, `docs/conf.py`, and
+  `mise run mutate` take their list of distributions from the members, and
+  `mutate` reports each separately; a member without a `src/` is skipped. A
+  new member also needs its package added by hand to the toctree in
+  `docs/api/python.md` and to `[tool.importlinter]`. pytest imports test
+  files by path, so two members may have a test file of the same name, and a
+  test can't import a helper beside it by name.
 - Module boundaries, which `mise run lint` checks. Add a project's own boundaries:
   - Python: a contract under `[tool.importlinter]` in `pyproject.toml`. The
     client may import the library; the library never imports the client,
