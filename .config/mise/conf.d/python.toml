@@ -3,7 +3,9 @@
 
 [tasks."setup:python"]
 description = "Install the Python dependencies that uv.lock pins"
-run = "uv sync --locked"
+# --all-packages also installs each workspace member's dev group, such as
+# lib/'s jsonschema, which a plain sync at the root leaves out.
+run = "uv sync --locked --all-packages"
 
 [tasks."fmt:python"]
 description = "Format the Python code in place"
