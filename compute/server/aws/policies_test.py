@@ -103,6 +103,8 @@ def test_image_push_role_pushes_only_to_the_job_repository() -> None:
     assert resources_of(grants, "ecr") - {"*"} == {JOB_REPOSITORY}
     assert {a for a, r in grants if r == "*"} == {"ecr:GetAuthorizationToken"}
     assert ("ecr:PutImage", JOB_REPOSITORY) in grants
+    for pull in ("ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"):
+        assert (pull, JOB_REPOSITORY) in grants, pull
     assert {a.split(":")[0] for a, _ in grants} == {"ecr"}
 
 

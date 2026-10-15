@@ -73,5 +73,5 @@ the limit to `v*` tags is the environment's own ("Setup for the owner", step
 
 | Sid | Why |
 |---|---|
-| `PushJobImage` | Pushing layers and the manifest to `compute-jobs/job`, and no other repository |
+| `PushJobImage` | Pushing layers and the manifest to `compute-jobs/job`, and no other repository; pulling the pushed digest back, to smoke-test it before attesting, and reading its manifest to add the release tag |
 | `ReleaseEnvironmentAssumesPushRole` | The trust policy: GitHub's OIDC provider, audience `sts.amazonaws.com`, `sub` `repo:arjunbhargava/foundation-compute:environment:release` |
