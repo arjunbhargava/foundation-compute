@@ -1,4 +1,4 @@
-# foundation
+# foundation-compute
 
 The project's documentation. The explanation pages are written by hand. The
 API reference is generated from doc comments in the source by

@@ -1,7 +1,7 @@
 [project]
-name = "foundation"
+name = "foundation-compute"
 version = "0.1.0"
-description = "The template's example Python package."
+description = "Compute infrastructure for agents."
 requires-python = "==3.14.*"
 dependencies = []
 
@@ -47,14 +47,14 @@ exclude = ["mutants", "**/node_modules", "**/__pycache__", "**/.*"]
 # Add a contract for each rule:
 # https://import-linter.readthedocs.io/en/stable/contract_types.html
 [tool.importlinter]
-root_package = "foundation"
-# Lets a contract name a package from outside foundation, such as pytest.
+root_package = "foundation_compute"
+# Lets a contract name a package from outside foundation_compute, such as pytest.
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "Library code doesn't import pytest, a development-only dependency"
 type = "forbidden"
-source_modules = ["foundation"]
+source_modules = ["foundation_compute"]
 forbidden_modules = ["pytest"]
 
 [tool.pytest]

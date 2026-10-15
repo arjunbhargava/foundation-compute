@@ -6,5 +6,5 @@ sphinx-autoapi generates the Python API reference from the docstrings in
 ```{toctree}
 :maxdepth: 1
 
-python/foundation/index
+python/foundation_compute/index
 ```

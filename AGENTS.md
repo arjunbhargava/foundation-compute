@@ -36,9 +36,7 @@ language the project has: Python.
 
 ## Where code lives
 
-- `src/foundation/`: the Python package, tested in `tests/`. `quadrature.py`
-  is the template's example, there to prove the checks work; delete it when
-  the first real Python code arrives.
+- `src/foundation_compute/`: the Python package, tested in `tests/`.
 - `pyproject.toml`: Python dependencies and tool settings. `uv.lock` locks
   the dependencies, and `.python-version` pins Python.
 - Module boundaries, which `mise run lint` checks. Add a project's own boundaries:

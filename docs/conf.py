@@ -8,7 +8,7 @@ its extensions and settings.
 from pathlib import Path
 from typing import Any
 
-project = "foundation"
+project = "foundation-compute"
 repository_root = Path(__file__).resolve().parent.parent
 
 extensions = ["myst_parser"]

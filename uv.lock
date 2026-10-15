@@ -69,7 +69,7 @@ wheels = [
 ]
 
 [[package]]
-name = "foundation"
+name = "foundation-compute"
 version = "0.1.0"
 source = { editable = "." }
 
