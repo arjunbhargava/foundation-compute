@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Job file, major version 1",
+  "description": "A YAML file in a project's jobs/ describing one job. A file without schema_version is major 1. The admin policy and limits.yaml check profile, nodes, max_runtime_minutes, and budget_usd against their limits.",
+  "type": "object",
+  "required": ["kind", "profile", "command", "max_runtime_minutes", "budget_usd"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "enum": ["single", "multi-node", "search"] },
+    "profile": { "description": "A profile in limits.yaml.", "type": "string", "minLength": 1 },
+    "nodes": {
+      "description": "multi-node and search only; at most the profile's maximum.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "command": { "type": "string", "minLength": 1 },
+    "max_runtime_minutes": {
+      "description": "At most the profile's maximum.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "budget_usd": {
+      "description": "The task's compute budget bounds it.",
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "use_spot": { "type": "boolean", "default": false },
+    "image": { "description": "project is deferred.", "enum": ["default"], "default": "default" },
+    "uv_extras": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "smoke": {
+      "description": "false if the command can't run without a GPU.",
+      "type": "boolean",
+      "default": true
+    },
+    "seed": { "description": "Recorded, and passed as COMPUTE_JOB_SEED.", "type": "integer" },
+    "settings": {
+      "description": "Free-form; recorded, and passed as JSON.",
+      "type": "object"
+    }
+  },
+  "if": { "properties": { "kind": { "const": "single" } } },
+  "then": { "not": { "required": ["nodes"] } }
+}

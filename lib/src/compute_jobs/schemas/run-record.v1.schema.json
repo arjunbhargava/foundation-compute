@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "run_record.json, major version 1",
+  "description": "The run record the wrapper writes to machines/<machine id>/run_record.json. Major 1 requires only schema_version; further fields are optional additions.",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": { "const": 1 }
+  }
+}

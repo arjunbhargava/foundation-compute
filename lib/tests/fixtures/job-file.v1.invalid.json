@@ -1,0 +1,13 @@
+{
+  "kind_missing": {"profile": "cpu", "command": "python simulate.py", "max_runtime_minutes": 15, "budget_usd": 1},
+  "kind_unknown": {"kind": "batch", "profile": "cpu", "command": "python simulate.py", "max_runtime_minutes": 15, "budget_usd": 1},
+  "profile_missing": {"kind": "single", "command": "python simulate.py", "max_runtime_minutes": 15, "budget_usd": 1},
+  "nodes_on_a_single_job": {"kind": "single", "profile": "cpu", "nodes": 1, "command": "python simulate.py", "max_runtime_minutes": 15, "budget_usd": 1},
+  "nodes_zero": {"kind": "search", "profile": "cpu", "nodes": 0, "command": "python search.py", "max_runtime_minutes": 15, "budget_usd": 1},
+  "unknown_field": {"kind": "single", "profile": "cpu", "command": "python simulate.py", "max_runtime_minutes": 15, "budget_usd": 1, "gpus": 1},
+  "max_runtime_minutes_zero": {"kind": "single", "profile": "cpu", "command": "python simulate.py", "max_runtime_minutes": 0, "budget_usd": 1},
+  "budget_usd_zero": {"kind": "single", "profile": "cpu", "command": "python simulate.py", "max_runtime_minutes": 15, "budget_usd": 0},
+  "use_spot_a_string": {"kind": "single", "profile": "cpu", "command": "python simulate.py", "max_runtime_minutes": 15, "budget_usd": 1, "use_spot": "no"},
+  "image_project_which_is_deferred": {"kind": "single", "profile": "cpu", "command": "python simulate.py", "max_runtime_minutes": 15, "budget_usd": 1, "image": "project"},
+  "schema_version_a_string": {"schema_version": "1", "kind": "single", "profile": "cpu", "command": "python simulate.py", "max_runtime_minutes": 15, "budget_usd": 1}
+}

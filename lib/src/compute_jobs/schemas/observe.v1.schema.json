@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "observe --json output, major version 1",
+  "description": "The one object compute-jobs observe --json prints on stdout, whatever its exit code. kind is null on exit 0, and otherwise the failure kind on stderr's first line, with a message. kind is a pattern, not a list, so a reader accepts a kind added later.",
+  "type": "object",
+  "required": ["schema_version", "kind"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": {
+      "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }]
+    },
+    "message": { "type": "string" }
+  },
+  "if": { "properties": { "kind": { "type": "string" } } },
+  "then": { "required": ["message"] }
+}

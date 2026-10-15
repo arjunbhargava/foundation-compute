@@ -21,3 +21,8 @@ filterwarnings = ["error"]
 
 [tool.mutmut]
 pytest_add_cli_args = ["-n", "0"]
+
+[dependency-groups]
+dev = [
+    "jsonschema>=4.26.0",
+]

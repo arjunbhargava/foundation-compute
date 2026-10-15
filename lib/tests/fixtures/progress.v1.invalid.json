@@ -1,0 +1,9 @@
+{
+  "schema_missing": {"schema_version": 1, "updated_at": "2026-10-15T03:26:00Z"},
+  "schema_and_schema_version_differ": {"schema": 1, "schema_version": 2, "updated_at": "2026-10-15T03:26:00Z"},
+  "updated_at_missing": {"schema": 1, "schema_version": 1},
+  "updated_at_without_a_time_zone": {"schema": 1, "schema_version": 1, "updated_at": "2026-10-15 03:26:00"},
+  "done_negative": {"schema": 1, "schema_version": 1, "done": -1, "updated_at": "2026-10-15T03:26:00Z"},
+  "step_a_float": {"schema": 1, "schema_version": 1, "step": 1.5, "updated_at": "2026-10-15T03:26:00Z"},
+  "best_without_a_value": {"schema": 1, "schema_version": 1, "best": {"name": "fitness"}, "updated_at": "2026-10-15T03:26:00Z"}
+}
