@@ -1,0 +1,137 @@
+# The compute list: the hardware profiles a job file may name, the EC2 vCPU
+# quotas that cap what runs at once, and the daily spending cap. The admin
+# policy and the ceiling check read whatever this file says, so an instance
+# type is added or enabled here, not in code. docs/compute-jobs.md, "Hardware
+# profiles", explains each field; limits.v1.schema.json and limits.py validate
+# them. An entry marked &name is reused below as *name, so its facts and price
+# are written once.
+#
+# Prices are AWS's on-demand Linux list prices in us-east-1, in USD per hour,
+# checked on 2026-10-15 at https://instances.vantage.sh. A price may round up
+# but never down, so the ceiling never understates. A spot entry is priced at
+# its on-demand price, which bounds what spot costs.
+schema_version: 1
+daily_cap_usd: 10000 # decision D8; never raised without the owner
+quotas: # vCPUs requested in us-east-1, named for these EC2 quotas:
+  standard_on_demand: 64 # Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances
+  g_vt_on_demand: 384 # Running On-Demand G and VT instances
+  g_vt_spot: 384 # All G and VT Spot Instance Requests
+  p_on_demand: 0 # Running On-Demand P instances
+  p_spot: 0 # All P Spot Instance Requests
+profiles:
+  cpu:
+    max_runtime_minutes: 1440
+    entries: # tried in order
+      # No Standard spot quota is listed, so the ceiling can't count spot
+      # use; spot stays off. 3 nodes, because the server's node takes 8 of
+      # the 64 vCPUs.
+      - instance_type: m7i.4xlarge
+        quota: standard_on_demand
+        spot_quota: null
+        accelerator: null
+        gpus_per_node: 0
+        gpu_memory_gb: null
+        vcpus: 16
+        usd_per_hour: 0.8064
+        max_nodes: 3
+        spot_allowed: false
+        enabled: true
+  gpu-small:
+    max_runtime_minutes: 1440
+    entries:
+      - instance_type: g6.xlarge
+        quota: g_vt_on_demand
+        spot_quota: g_vt_spot
+        accelerator: L4
+        gpus_per_node: 1
+        gpu_memory_gb: 24
+        vcpus: 4
+        usd_per_hour: 0.8048
+        max_nodes: 1
+        spot_allowed: true
+        enabled: true
+      - instance_type: g6e.xlarge
+        quota: g_vt_on_demand
+        spot_quota: g_vt_spot
+        accelerator: L40S
+        gpus_per_node: 1
+        gpu_memory_gb: 48
+        vcpus: 4
+        usd_per_hour: 1.861
+        max_nodes: 1
+        spot_allowed: true
+        enabled: true
+      - instance_type: g4dn.xlarge
+        quota: g_vt_on_demand
+        spot_quota: g_vt_spot
+        accelerator: T4
+        gpus_per_node: 1
+        gpu_memory_gb: 16
+        vcpus: 4
+        usd_per_hour: 0.526
+        max_nodes: 1
+        spot_allowed: true
+        enabled: true
+  gpu-sim:
+    max_runtime_minutes: 1440
+    entries:
+      - &g6e_48xlarge
+        instance_type: g6e.48xlarge
+        quota: g_vt_on_demand
+        spot_quota: g_vt_spot
+        accelerator: L40S
+        gpus_per_node: 8
+        gpu_memory_gb: 48
+        vcpus: 192
+        usd_per_hour: 30.13118
+        max_nodes: 2
+        spot_allowed: true
+        enabled: true
+      - instance_type: g6e.12xlarge
+        quota: g_vt_on_demand
+        spot_quota: g_vt_spot
+        accelerator: L40S
+        gpus_per_node: 4
+        gpu_memory_gb: 48
+        vcpus: 48
+        usd_per_hour: 10.49264
+        max_nodes: 2
+        spot_allowed: true
+        enabled: true
+  gpu-train:
+    max_runtime_minutes: 1440
+    entries:
+      - *g6e_48xlarge
+  gpu-sim-large: # enable with G on demand 768 and G spot 0
+    max_runtime_minutes: 1440
+    entries:
+      - <<: *g6e_48xlarge
+        spot_quota: null
+        max_nodes: 4
+        spot_allowed: false
+        enabled: false
+  gpu-train-large: # enable once the P quota is raised: 192 vCPUs per p5 node
+    max_runtime_minutes: 1440
+    entries:
+      - instance_type: p5.48xlarge
+        quota: p_on_demand
+        spot_quota: null
+        accelerator: H100
+        gpus_per_node: 8
+        gpu_memory_gb: 80
+        vcpus: 192
+        usd_per_hour: 55.04
+        max_nodes: 2
+        spot_allowed: false
+        enabled: false
+      - instance_type: p4d.24xlarge
+        quota: p_on_demand
+        spot_quota: null
+        accelerator: A100
+        gpus_per_node: 8
+        gpu_memory_gb: 40
+        vcpus: 96
+        usd_per_hour: 21.96
+        max_nodes: 2
+        spot_allowed: false
+        enabled: false
