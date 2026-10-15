@@ -7,6 +7,7 @@ from typing import NoReturn
 from compute_jobs_cli.kinds import CommandFailure, FailureKind
 
 COMMANDS = ("dry-run", "launch", "observe", "cancel")
+SERVER_COMMANDS = ("launch", "observe", "cancel")
 
 
 def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
