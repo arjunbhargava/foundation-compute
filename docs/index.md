@@ -30,6 +30,7 @@ agent-instructions
 agent-rules-and-skills
 architecture
 auto-mode
+compute-jobs
 install-script
 linear
 orchestration
