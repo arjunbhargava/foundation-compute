@@ -59,6 +59,7 @@ Progress: generation 12 of 50, evaluating, 6,400 of 10,000 evaluations; best fit
 | You see | What it means | What to do |
 |---|---|---|
 | `SKYPILOT_API_SERVER_ENDPOINT is not set ...` | This machine isn't connected to the job server | Ask the owner for the two secrets; never start a server |
+| `the job server at https://... didn't answer within 10 s` | The server is down or unreachable; nothing was launched or cancelled | Ask the owner to run `compute-server:status`; observe still reads the archive with the read-only key |
 | `profile gpu-sim allows at most 2 nodes` | The job asks for more than the limits allow | Ask for fewer, or ask the owner to raise the limit |
 | `maximum cost $180.78 exceeds budget_usd 150` | The job could cost more than it may | Shorten `max_runtime_minutes`, use fewer nodes, or raise `budget_usd` within the task's budget |
 | `FAILED (exit 1)` in observe | The job's command failed | Read the log tail observe prints, fix, push, launch again |
@@ -557,8 +558,8 @@ attempt. `progress.json` is as in [Progress](#progress).
 
 ### Proposed v0.1: versioned formats
 
-**Pending agreement with the template.** These additions change no command
-name, variable, or exit code, and a v0 reader keeps working:
+**Pending agreement with the template.** These additions add or rename no
+command, variable, or exit code, and a v0 reader keeps working:
 
 1. **Job file:** an optional integer `schema_version`; a file without it
    means 1.
@@ -580,6 +581,11 @@ name, variable, or exit code, and a v0 reader keeps working:
    `lib/src/compute_jobs/schemas/` (`job-file`, `progress`, `run-record`,
    `archive`, each `.v<major>.schema.json`), published at each release tag
    and tested against valid and invalid fixtures.
+9. **An unreachable server**: `observe` exits 1 when the server doesn't
+   answer within 10 seconds and the read-only key isn't set, widening v0's
+   "no such job" to "couldn't read the job"; with the key it exits 0 from the
+   archive. `launch` and `cancel` exit 1, as "rejected"
+   ([Running an example end to end](#running-an-example-end-to-end)).
 
 The versioning policy, for every format:
 
@@ -685,11 +691,64 @@ use on GPUs), a short README, calls `progress.report`, writes a result to
 `$COMPUTE_JOB_OUTPUT_DIR` and a checkpoint to `$COMPUTE_JOB_CHECKPOINT_DIR`,
 and has a CI test that runs its `dry-run`, smoke test included.
 
+CI never needs the API server or any AWS call. Its test of each example is
+the `dry-run` alone, which is local: the admin policy's code and
+`limits.yaml` check the job file, and the CPU smoke test runs the example's
+code, with no SkyPilot call and no server variables set. That tests each
+example's job file and smoke test, and nothing beyond them.
+
 | Example | Kind, nodes | What it does |
 |---|---|---|
 | `examples/single/` | `single`, 1 | Ten steps of a toy simulation; checkpoints each step and resumes from the last |
 | `examples/multi_node/` | `multi-node`, 2; also runs with `nodes: 1` | `torchrun` with the gloo backend: each rank logs `rank R of W`, then an all-reduce of the ranks, checked against W(W−1)/2 |
 | `examples/fanout/` | `search`, 2 | The toy evolutionary search: a CPU stand-in simulation (a noisy analytic fitness function with a sleep, so evaluations take seconds), 5 generations of 200 evaluations through `compute_jobs.fanout`, with `gpus_per_evaluation=0`, so Ray schedules each on its default of one CPU ([Ray](https://docs.ray.io/en/latest/ray-core/scheduling/resources.html)) |
+
+### Running an example end to end
+
+Each example also runs on the real server, on request, whenever the server is
+up. That run is manual, by an agent or the owner when asked, and never a CI
+job; it costs money, so the `compute-cost` rule applies, as in
+[the spike](#the-spike). PR 9
+adds the four `job:*` mise tasks to this repository, running `uv run
+compute-jobs`, so the sequence is the same here as in a project. From a
+branch with an open PR, its changes committed and pushed, with the two server
+variables set (and the read-only key, for the last step):
+
+```sh
+mise run job:dry-run -- examples/single/job.yaml
+mise run job:launch -- examples/single/job.yaml   # prints the job name
+mise run job:observe -- <job name>                # repeat until it ends
+```
+
+Observe prints the state, progress, log tail, and each machine's id. The
+result lands at `s3://<bucket>/machines/<machine id>/output/result.json`, with
+the run record, `progress.json`, and log beside it, and the checkpoint under
+`s3://<bucket>/checkpoints/<job name>/`; `index/<job name>/` lists the job's
+machines. `multi_node` and `fanout` use the same three commands with their
+own `job.yaml`; for `multi_node` on 1 node, change only `nodes:` to 1, commit,
+and push. What each run should show is in
+[How the owner verifies](#how-the-owner-verifies).
+
+When the server is down, nothing hangs and nothing is launched:
+
+- With a server variable unset, `launch`, `observe`, and `cancel` exit 2
+  with the v0 message above, before any network call.
+- With the variables set but the server unreachable, the client checks the
+  endpoint's health before any SkyPilot call, with a 10-second timeout
+  (SkyPilot documents `GET <endpoint>/api/health`; unverified for 0.14.0).
+  `launch` and `cancel` then exit 1, saying the server at that endpoint
+  didn't answer, that nothing was launched or cancelled, and to ask the owner
+  to run `compute-server:status`. Every later request to the server has a
+  60-second timeout, so a server that fails mid-command also ends in exit 1.
+- `observe` then reads the archive, if the read-only key is set: it exits 0,
+  says the server is unreachable, and shows progress and the machines from
+  `index/<job name>/`. Without the key it exits 1 with the same message.
+- `dry-run` needs no server, so it works as usual.
+
+These add no exit code. For `launch` and `cancel`, an unreachable server is
+a kind of v0's "rejected". For `observe`, exit 1 widens v0's "no such job" to
+"couldn't read the job", which is pending agreement with the template, like
+the [v0.1 additions](#proposed-v01-versioned-formats).
 
 ## Admin tasks
 
@@ -849,11 +908,11 @@ admin policy, and provisioning run on Opus; the rest on Sonnet. A PR marked
 | 2 | `compute-jobs` with its four commands and configuration checks | Sonnet | | AC 1; AC 2 for argument errors |
 | 3 | Versioned schemas: the four JSON Schema files, fixtures, and the readers' version check | Opus | yes: formats, v0.1 pending the template | AC 13 |
 | 4 | The job file and job name, the admin policy, `limits.yaml` as the compute list, and the ceiling check | Opus | yes: limits bound spend | AC 5, 6, 14 |
-| 5 | `dry-run` and `launch`, with a fake SkyPilot SDK | Sonnet | | AC 2, 7; launch submits the expected task and refuses unpushed changes |
-| 6 | `progress`, `observe` (with `--json` fixed), and `cancel` | Sonnet | | AC 2, 10 |
+| 5 | `dry-run` and `launch`, with a fake SkyPilot SDK | Sonnet | | AC 2, 7, and 22 for launch; launch submits the expected task and refuses unpushed changes |
+| 6 | `progress`, `observe` (with `--json` fixed), and `cancel` | Sonnet | | AC 2, 10, and 22 for observe and cancel |
 | 7 | The wrapper, run record, archive, and distributed variables, with S3 faked by moto | Sonnet | | AC 9, 11, 12 |
 | 8 | `fanout` | Opus | | AC 8 |
-| 9 | The three examples and their CI dry runs | Sonnet | | AC 16 |
+| 9 | The three examples, their local CI dry runs, the `job:*` mise tasks, and each README's end-to-end sequence | Sonnet | | AC 16 |
 | 10 | The image and `compute-image.yml`: build and smoke test on PRs, attest and push to ECR on tags | Sonnet | yes: publishes through a cloud role | AC 18 |
 | 11 | Releases: `release.yml`, a ruleset protecting `v*` tags, release notes naming the contract, schema, and SkyPilot versions; tag `v0.1.0` | Sonnet | yes: release policy | AC 21; the template can pin `v0.1.0` |
 | 12 | IAM policy files, `mise.admin.toml`, `compute-server:status` | Opus | yes: IAM | AC 3, 15 |
@@ -861,8 +920,8 @@ admin policy, and provisioning run on Opus; the rest on Sonnet. A PR marked
 | 14 | The `compute-server-admin` skill, drafted for the owner | Sonnet | yes: people write skills (F2) | The owner has edited it |
 | 15 | The spike: the three examples through the real server, verified by the owner; this page and `docs/architecture.md` rewritten as built | Opus | yes: compute spend | AC 19, 20 |
 
-**What CI can test**: AC 1 to 18 and 21, with no AWS account, network, or
-server, using a fake SkyPilot SDK, moto for S3, a fake `nvidia-smi`, Ray and
+**What CI can test**: AC 1 to 18, 21, and 22, with no AWS account, network, or
+server, using a fake SkyPilot SDK, a local fake server for AC 22, moto for S3, a fake `nvidia-smi`, Ray and
 `torchrun` on one CI machine, and a container with only Python 3.14 for AC
 21; IAM policies only statically (the allowed prefixes, actions, and trust
 in the JSON); the image workflow's build and smoke test, but not its push.
@@ -870,7 +929,9 @@ in the JSON); the image workflow's build and smoke test, but not its push.
 policies behave as written, SkyPilot's behaviour behind its SDK (admin
 policy hooks, ECR pulls, spot recovery, consolidation mode), GPU drivers,
 Ray and `torchrun` across real nodes, and cost. `compute-server:status` and
-the spike check those (AC 19, 20).
+the spike check those (AC 19, 20). No CI job ever calls the server or AWS:
+the examples' end-to-end runs are manual, on request
+([Running an example end to end](#running-an-example-end-to-end)).
 
 ## The spike
 
@@ -900,9 +961,10 @@ more. Not counted: the server's standing $15 a day.
 
 1. In PR 15, the agent posts the table above. Reply `Approved: $10`, or a
    smaller figure.
-2. For each run, the agent posts one PR comment holding the outputs of
-   `compute-jobs dry-run`, `compute-jobs launch`, and, once it ends,
-   `compute-jobs observe <job name>`, and a listing of
+2. For each run, the agent follows
+   [Running an example end to end](#running-an-example-end-to-end) and posts
+   one PR comment holding the outputs of `job:dry-run`, `job:launch`, and,
+   once it ends, `job:observe <job name>`, and a listing of
    `s3://<bucket>/index/<job name>/` and of each
    `s3://<bucket>/machines/<machine id>/`.
 3. `single` passes when observe says `SUCCEEDED (exit 0)` and `step 10 of
@@ -996,6 +1058,10 @@ and 20.
     [How the owner verifies](#how-the-owner-verifies).
 21. On a machine with only Python 3.14, the mise pin above gives a working
     `compute-jobs dry-run`, and the library installs into a 3.14 project.
+22. Against a local fake server that accepts connections and never answers,
+    `launch` and `cancel` exit 1 within 15 seconds naming the endpoint, and a
+    fake SDK records no submission; `observe` exits 0 from a moto archive
+    with the read-only key set, and 1 without it; `dry-run` is unaffected.
 
 ## Deferred
 
