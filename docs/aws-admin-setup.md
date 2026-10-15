@@ -34,9 +34,11 @@ registered, adds about $15 a year.
 
 **Job cost**: nothing runs until the owner approves a compute budget for it.
 Each job has its own `budget_usd`, which the server enforces. EC2 vCPU
-quotas cap what can run at once: at the plan's quotas, at most $360.55 an
-hour at list price
-([Hardware profiles](compute-jobs.md#hardware-profiles)). A daily budget of
+quotas cap what can run at once: at the account's on-demand quotas,
+$415.37 an hour at list price, plus whatever the spot quotas allow
+([step 3](#3-quotas); the plan's own figure, $360.55, assumed lower
+quotas, in [Hardware profiles](compute-jobs.md#hardware-profiles)). A daily
+budget of
 $10,000 blocks new machines when reached.
 
 ## Terms
@@ -125,34 +127,45 @@ permissions boundary would narrow it (see
 
 ### 3. Quotas
 
-The owner reports that their account already has on-demand vCPU quotas above
-the plan's minimums. **Do not lower any quota.** Request an increase only
-where the current value is below the minimum.
+The owner read the account's applied quotas from its Service Quotas page,
+in `us-east-1`, on 2026-10-15. Every on-demand value is at or above the
+plan's minimum, so no on-demand increase is needed. **Do not lower any of
+these quotas.** The spot values are still to come; request a spot increase
+only where the value is below the minimum.
 
-Quotas are per account. If `agent-jobs` is a new account, it starts at AWS's
-defaults (0 for G and P, 5 for Standard;
-[AWS](https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-instance-quotas.html)),
-not at the owner's existing account's values, so it needs the increases.
+Quotas are per account. If `agent-jobs` is a different account from the one
+these values came from, it starts at AWS's defaults (0 for G and P, 5 for
+Standard;
+[AWS](https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-instance-quotas.html))
+and needs the increases.
 
-1. Open
-   <https://console.aws.amazon.com/servicequotas/home/services/ec2/quotas>,
-   in `us-east-1`, signed in to `agent-jobs`.
-2. Record each current value below, and request an increase only where it
-   is under the minimum.
-
-| EC2 quota, in vCPUs | Plan's minimum | Current value in `agent-jobs` |
+| EC2 quota, in vCPUs | Plan's minimum | Applied value [AWS default] |
 |---|---|---|
-| Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances | 64 | `<fill in>` |
-| Running On-Demand G and VT instances | 384 | `<fill in>` |
+| Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances | 64 | 1,152 [5] |
+| Running On-Demand G and VT instances | 384 | 768 [0] |
+| Running On-Demand P instances | 0 | 768 [0] |
+| All Standard (A, C, D, H, I, M, R, T, Z) Spot Instance Requests | none | `<fill in>` |
 | All G and VT Spot Instance Requests | 384 | `<fill in>` |
-| Running On-Demand P instances | 0 | `<fill in>` |
 | All P Spot Instance Requests | 0 | `<fill in>` |
+
+No profile uses the other on-demand quotas, which also must not be lowered:
+DL 96, F 128, High Memory 448, HPC 768, Inf 128, Trn 256, X 128.
+
+Spot quotas are at
+<https://console.aws.amazon.com/servicequotas/home/services/ec2/quotas>.
 
 `compute/server/admin_policy/src/compute_jobs_admin_policy/limits.yaml`
 mirrors these values, because they cap how many machines can run at once and
 so how much can be spent in an hour. `compute-server:status` multiplies each
 by the dearest instance type allowed for it and fails if the total exceeds
 the $10,000 daily cap divided by 24, $416.67 an hour.
+
+With these values, the ceiling is already $415.37 an hour before spot is
+counted: 768 G vCPUs at g6e.xlarge's $0.465 per vCPU-hour, plus 1,152
+Standard vCPUs at m7i.4xlarge's $0.0504. The disabled P entries add nothing.
+So any G and VT spot quota above 2 vCPUs makes `compute-server:status` fail
+until the owner turns off spot on the G profiles in `limits.yaml`, so that
+the G spot quota counts as $0, or raises the cap. That is the owner's decision, not a reason to lower a quota.
 
 ### 4. Route 53 hosted zone
 
@@ -390,7 +403,7 @@ It assumes the bucket's name starts `compute-jobs-`, which PR 13 must keep.
 - [ ] GitHub OIDC provider ARN
 - [ ] IAM Identity Center start URL, and the permission set's name
   (`ComputeJobsSetup`) and its removal date (Option A)
-- [ ] The quota table above, filled in
+- [ ] The three spot quota values, for the table above
 - [ ] Option B only: provisioning's output (endpoint, dashboard URL, push
   role ARN), and the read-only key and admin password through a password
   manager
@@ -431,8 +444,9 @@ sets:
 
 ## Questions for the administrator
 
-1. **Account**: a new account, or an existing one? If new, it won't have
-   the owner's existing quotas (step 3). Which organizational unit?
+1. **Account**: is `agent-jobs` the account whose quotas are in step 3? If
+   it is a new account, it starts at AWS's defaults. Which organizational
+   unit?
 2. **SCPs**: do any deny `eks:*`, `iam:CreateOpenIDConnectProvider`,
    `iam:CreateUser`, `iam:CreateAccessKey` (the read-only key), service-linked
    roles, or `us-east-1`?
