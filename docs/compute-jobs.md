@@ -495,6 +495,8 @@ exit with the same codes.
 
 Exit 2 means only "not configured". An argument error exits 1, not
 `argparse`'s default of 2, so the template's wrapper can pass codes through.
+The proposed v0.1 names each failure on stderr's first line
+([Failure kinds](#proposed-v01-failure-kinds)).
 
 ### Variables
 
@@ -573,19 +575,24 @@ command, variable, or exit code, and a v0 reader keeps working:
 5. **`multi-node` accepts `nodes: 1`**, and the wrapper also exports
    `MASTER_PORT`, as in
    [Distributed training](#distributed-training-on-1-or-n-nodes).
-6. **`observe --json`** prints one object with a `schema_version`.
+6. **`observe --json`** prints one object with a `schema_version` and a
+   `kind` (addition 10).
 7. **`$COMPUTE_JOB_OUTPUT_DIR`**, set by the wrapper: files the job writes
    there are uploaded to `machines/<machine id>/output/`. v0 names the
    archive's output but not how a job writes it.
 8. **JSON Schema files**, one per format, in
    `lib/src/compute_jobs/schemas/` (`job-file`, `progress`, `run-record`,
-   `archive`, each `.v<major>.schema.json`), published at each release tag
-   and tested against valid and invalid fixtures.
+   `archive`, and `observe` for `observe --json`, each
+   `.v<major>.schema.json`), published at each release tag and tested
+   against valid and invalid fixtures.
 9. **An unreachable server**: `observe` exits 1 when the server doesn't
    answer within 10 seconds and the read-only key isn't set, widening v0's
    "no such job" to "couldn't read the job"; with the key it exits 0 from the
-   archive. `launch` and `cancel` exit 1, as "rejected"
-   ([Running an example end to end](#running-an-example-end-to-end)).
+   archive. `launch` and `cancel` exit 1, with v0's "rejected" widened the
+   same way ([Running an example end to end](#running-an-example-end-to-end)).
+10. **Failure kinds**: every exit 1 and 2 prints `kind=<kind>` as the first
+    line of stderr, and `observe --json` carries the same `kind`
+    ([below](#proposed-v01-failure-kinds)).
 
 The versioning policy, for every format:
 
@@ -600,12 +607,64 @@ The versioning policy, for every format:
   `launch` exit 1 for a job file they refuse, and `observe` exits 0, printing
   the refusal in place of the progress it can't read.
 
+### Proposed v0.1: failure kinds
+
+**Pending agreement with the template**, as addition 10. Every exit 1 or 2
+from `compute-jobs` writes, as the first line of stderr, exactly
+`kind=<kind>` and a newline: no spaces, no other text, and `<kind>` matches
+`[a-z][a-z0-9_]*`. The human message follows on the next lines, unchanged,
+and stdout is unaffected. Exit 0 writes no `kind=` line. The template's skill
+and wrapper branch on that first line, never on the message:
+
+```text
+$ compute-jobs observe pr81-search-00000000
+kind=unknown_job
+No job named pr81-search-00000000. List this PR's jobs with:
+  compute-jobs observe --pr 81
+```
+
+`observe --json` prints its object on stdout whatever the exit code, with a
+`kind` beside `schema_version`: `null` on exit 0, and otherwise the kind on
+the stderr line, with a `message`. Any `--json` output a later release adds
+to another command does the same. For exit 2 the line comes before v0's
+message, and the template's wrapper, which exits 2 itself before calling the
+client, prints the same line: a change on the template's side.
+
+| Kind | Exit | Commands | Meaning | v0 meaning it refines |
+|---|---|---|---|---|
+| `not_configured` | 2 | launch, observe, cancel | A server variable is unset, or the endpoint isn't `https://` or points at this machine | "not configured" |
+| `argument_error` | 1 | all | An unknown command or option, or a missing or malformed argument | An argument error |
+| `invalid_job_file` | 1 | dry-run, launch | The file isn't a valid job file: a YAML error, a missing, unknown, or mistyped field, an unknown kind or profile, or `nodes` on a `single` job | dry-run's "invalid"; launch's "rejected" |
+| `refused_job_file` | 1 | dry-run, launch | A valid job file this release refuses: an unsupported `schema_version`, or a limit in the release's `limits.yaml` (nodes, run time, budget, image, or no enabled entry left) | dry-run's "invalid"; launch's "rejected" |
+| `smoke_failed` | 1 | dry-run | The smoke test exited nonzero or ran out of time | "the smoke test failed" |
+| `rejected` | 1 | launch, cancel | The server or its admin policy refused the request, such as a limit newer than the client's release, or cancelling a job the caller didn't launch | "rejected" |
+| `unknown_job` | 1 | observe, cancel | No job has that name | "no such job" |
+| `server_unreachable` | 1 | launch, observe, cancel | The server didn't answer in time (addition 9); for observe, only without the read-only key | "rejected"; "no such job" |
+| `branch_not_ready` | 1 | launch | Uncommitted or unpushed changes, or no open PR for the branch to name the job by | "rejected" |
+| `unauthorized` | 1 | launch, observe, cancel | The server refused the token | "rejected"; "no such job" |
+| `internal_error` | 1 | all | An unexpected error in the client; the traceback follows the message | none: Python's own exit 1 |
+
+All eight requested kinds fit v0's table. `invalid_job_file` and
+`refused_job_file` split dry-run's "invalid" and the client-side part of
+launch's "rejected"; `rejected` keeps the server-side part. The last three
+kinds are proposed here because without them some exit-1 paths would have no
+kind.
+
+The kinds are part of the contract and are versioned with `observe --json`
+under the policy above. Adding a kind is additive and changes no version.
+Renaming or removing one, or changing its meaning or exit code, is breaking:
+it increments that format's major and needs the template's agreement. A
+reader that meets a kind it doesn't know treats it as a failure with that
+exit code. The client defines the kinds once, in `compute_jobs_cli.kinds`.
+The `observe` JSON Schema types `kind` by the pattern above rather than as a
+list, so a validating reader accepts a newly added kind.
+
 ### What the template assumes
 
 | Assumption | Status here |
 |---|---|
 | (a) An executable `compute-jobs <dry-run\|launch\|observe\|cancel> [args]`, installed by a pin in `mise.toml` | Confirmed; the pin's form is below |
-| (b) The template's wrapper exits 2 itself, without calling the client, when the executable is missing, when launch, observe, or cancel lack the two server variables, or when the endpoint isn't https:// or points at this machine; otherwise it passes arguments and exit code through; dry-run needs no server variables | Confirmed. The client repeats the same checks, with the same message and exit 2, for anyone who runs it directly; and it exits 2 for nothing else |
+| (b) The template's wrapper exits 2 itself, without calling the client, when the executable is missing, when launch, observe, or cancel lack the two server variables, or when the endpoint isn't https:// or points at this machine; otherwise it passes arguments and exit code through; dry-run needs no server variables | Confirmed. The client repeats the same checks, with the same message and exit 2, for anyone who runs it directly; and it exits 2 for nothing else. Under v0.1's failure kinds, the wrapper passes stderr through unchanged, so `kind=` stays the first line |
 | (c) The package provides `compute_jobs.progress.report(...)` and `compute_jobs.fanout` | Confirmed, with a difference: they are in the library distribution `compute-jobs`, which job code imports from the project's own environment, so a project whose jobs use them also adds that library, at the same tag, to its `pyproject.toml` (below) |
 | (d) `observe --pr <n>` and `--json` work | Confirmed. `--pr <n>` lists jobs whose name starts `pr<n>-`. v0 doesn't define `--json`'s output; PR 6 fixes it as one object with a `schema_version` field, an addition to v0 |
 
@@ -732,11 +791,12 @@ and push. What each run should show is in
 When the server is down, nothing hangs and nothing is launched:
 
 - With a server variable unset, `launch`, `observe`, and `cancel` exit 2
-  with the v0 message above, before any network call.
+  with `kind=not_configured` and the v0 message above, before any network
+  call.
 - With the variables set but the server unreachable, the client checks the
   endpoint's health before any SkyPilot call, with a 10-second timeout
   (SkyPilot documents `GET <endpoint>/api/health`; unverified for 0.14.0).
-  `launch` and `cancel` then exit 1, saying the server at that endpoint
+  `launch` and `cancel` then exit 1 with `kind=server_unreachable`, saying the server at that endpoint
   didn't answer, that nothing was launched or cancelled, and to ask the owner
   to run `compute-server:status`. Every later request to the server has a
   60-second timeout, so a server that fails mid-command also ends in exit 1.
@@ -745,10 +805,8 @@ When the server is down, nothing hangs and nothing is launched:
   `index/<job name>/`. Without the key it exits 1 with the same message.
 - `dry-run` needs no server, so it works as usual.
 
-These add no exit code. For `launch` and `cancel`, an unreachable server is
-a kind of v0's "rejected". For `observe`, exit 1 widens v0's "no such job" to
-"couldn't read the job", which is pending agreement with the template, like
-the [v0.1 additions](#proposed-v01-versioned-formats).
+These add no exit code; they are v0.1 additions 9 and 10, pending agreement
+with the template ([Proposed v0.1](#proposed-v01-versioned-formats)).
 
 ## Admin tasks
 
@@ -905,11 +963,11 @@ admin policy, and provisioning run on Opus; the rest on Sonnet. A PR marked
 | # | PR | Model | Review | Done when |
 |---|---|---|---|---|
 | 1 | Package layout: the three distributions as a uv workspace, Python 3.13 for the CLI, the placeholder package removed, the API pages | Opus | yes: package split and Python pin | `mise run check` and `mise run docs` pass; AC 17 |
-| 2 | `compute-jobs` with its four commands and configuration checks | Sonnet | | AC 1; AC 2 for argument errors |
-| 3 | Versioned schemas: the four JSON Schema files, fixtures, and the readers' version check | Opus | yes: formats, v0.1 pending the template | AC 13 |
+| 2 | `compute-jobs` with its four commands, configuration checks, and the failure kinds with their top-level handler | Sonnet | yes: failure kinds, v0.1 pending the template | AC 1; AC 2 for argument errors; AC 23 for `not_configured`, `argument_error`, and `internal_error` |
+| 3 | Versioned schemas: the five JSON Schema files, fixtures, and the readers' version check | Opus | yes: formats, v0.1 pending the template | AC 13 |
 | 4 | The job file and job name, the admin policy, `limits.yaml` as the compute list, and the ceiling check | Opus | yes: limits bound spend | AC 5, 6, 14 |
-| 5 | `dry-run` and `launch`, with a fake SkyPilot SDK | Sonnet | | AC 2, 7, and 22 for launch; launch submits the expected task and refuses unpushed changes |
-| 6 | `progress`, `observe` (with `--json` fixed), and `cancel` | Sonnet | | AC 2, 10, and 22 for observe and cancel |
+| 5 | `dry-run` and `launch`, with a fake SkyPilot SDK | Sonnet | | AC 2, 7, and 22 and 23 for their kinds; launch submits the expected task and refuses unpushed changes |
+| 6 | `progress`, `observe` (with `--json` fixed), and `cancel` | Sonnet | | AC 2, 10, and 22 and 23 for their kinds |
 | 7 | The wrapper, run record, archive, and distributed variables, with S3 faked by moto | Sonnet | | AC 9, 11, 12 |
 | 8 | `fanout` | Opus | | AC 8 |
 | 9 | The three examples, their local CI dry runs, the `job:*` mise tasks, and each README's end-to-end sequence | Sonnet | | AC 16 |
@@ -920,7 +978,7 @@ admin policy, and provisioning run on Opus; the rest on Sonnet. A PR marked
 | 14 | The `compute-server-admin` skill, drafted for the owner | Sonnet | yes: people write skills (F2) | The owner has edited it |
 | 15 | The spike: the three examples through the real server, verified by the owner; this page and `docs/architecture.md` rewritten as built | Opus | yes: compute spend | AC 19, 20 |
 
-**What CI can test**: AC 1 to 18, 21, and 22, with no AWS account, network, or
+**What CI can test**: AC 1 to 18 and 21 to 23, with no AWS account, network, or
 server, using a fake SkyPilot SDK, a socket that never answers for AC 22, moto for S3, a fake `nvidia-smi`, Ray and
 `torchrun` on one CI machine, and a container with only Python 3.14 for AC
 21; IAM policies only statically (the allowed prefixes, actions, and trust
@@ -1061,9 +1119,23 @@ and 20.
 22. With the endpoint `https://compute-jobs.test`, which passes AC 1's checks
     and which the test resolves to a socket that accepts connections and
     never answers, `launch` and `cancel` exit 1 within 15 seconds naming the
-    endpoint, and a
-    fake SDK records no submission; `observe` exits 0 from a moto archive
-    with the read-only key set, and 1 without it; `dry-run` is unaffected.
+    endpoint, and a fake SDK records no submission; `observe` exits 0 from a
+    moto archive with the read-only key set, and 1 without it; `dry-run` is
+    unaffected.
+23. One test for each kind in [Failure kinds](#proposed-v01-failure-kinds)
+    triggers it through every command the table lists: `not_configured` by an
+    unset variable, `argument_error` by an unknown option, `invalid_job_file`
+    by an unknown field, `refused_job_file` by `schema_version: 99` and by
+    nodes above the maximum, `smoke_failed` by a command that exits 3,
+    `rejected` by a fake SDK's policy rejection and a cancel of another
+    caller's job, `unknown_job` by an unused name, `server_unreachable` as in
+    AC 22, `branch_not_ready` by an uncommitted change, `unauthorized` by a
+    fake SDK's 401, and `internal_error` by a fake SDK raising an unexpected
+    exception. Each checks the exit code, that stderr's first line is exactly
+    `kind=<kind>`, and, for observe, that `--json` prints the same `kind`
+    and validates against its schema. On exit 0, stderr has no `kind=` line
+    and `--json` has `kind: null`. Another test fails when this table and
+    `compute_jobs_cli.kinds` differ.
 
 ## Deferred
 
