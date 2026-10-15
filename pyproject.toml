@@ -5,7 +5,15 @@ description = "The compute-jobs client: launches, observes, and cancels jobs on 
 # SkyPilot 0.14.0, which this distribution will depend on, supports Python up
 # to 3.13 (its PyPI classifiers; it sets no requires-python).
 requires-python = "==3.13.*"
-dependencies = ["compute-jobs", "compute-jobs-admin-policy"]
+dependencies = [
+    "boto3>=1.43.114",
+    "compute-jobs",
+    "compute-jobs-admin-policy",
+    "skypilot==0.14.0",
+]
+
+[project.scripts]
+compute-jobs = "compute_jobs_cli.cli:run"
 
 [build-system]
 requires = ["uv_build>=0.12.23,<0.13.0"]
@@ -26,7 +34,7 @@ compute-jobs-admin-policy = { workspace = true }
 [dependency-groups]
 dev = [
     "import-linter>=2.15",
-    "mutmut>=3.8.0",
+    "mutmut>=3.7.0,<3.8",
     "pyright[nodejs]>=1.1.414",
     "pytest>=9.1.1",
     "pytest-xdist>=3.8.0",
