@@ -9,12 +9,9 @@ the pages that are the same in every project made from the template.
 :caption: This project
 :maxdepth: 1
 
-<<<<<<< before updating
-agent-instructions
-=======
 README <project-readme>
 architecture
->>>>>>> after updating
+compute-jobs
 ```
 
 ```{toctree}
@@ -22,18 +19,7 @@ architecture
 :maxdepth: 1
 :glob:
 
-<<<<<<< before updating
-agent-rules-and-skills
-architecture
-auto-mode
-compute-jobs
-install-script
-linear
-orchestration
-template-updates
-=======
 api/*
->>>>>>> after updating
 ```
 
 ```{toctree}

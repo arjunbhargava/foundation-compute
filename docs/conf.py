@@ -91,6 +91,7 @@ exclude_patterns = ["_build", ".venv"]
 # The page that includes each of these root files, which a link to the file
 # from another root file leads to. docs/conf_test.py checks the page names.
 pages_of_root_files = {
+    Path("README.md"): "project-readme",
     Path("AGENTS.md"): "agent-instructions",
 }
 
