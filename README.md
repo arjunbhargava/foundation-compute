@@ -1,7 +1,7 @@
 # foundation-compute
 
 The infra half of a compute-jobs system for agents: a shared SkyPilot API
-server on EKS, a client package (`foundation_compute`), an in-job wrapper,
+server on EKS, a client package (`compute_jobs_cli`), an in-job wrapper,
 and an S3 job archive.
 
 ```sh

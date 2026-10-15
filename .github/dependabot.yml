@@ -10,9 +10,10 @@ updates:
     # release is more likely to be caught first. Security updates don't wait.
     cooldown:
       default-days: 7
-  # The docs build's tools in docs/, and the Python package's tools.
+  # The docs build's tools in docs/, and the three Python distributions: the
+  # root and its uv workspace members, which share the root's uv.lock.
   - package-ecosystem: uv
-    directories: [/, /docs]
+    directories: [/, /docs, /lib, /compute/server/admin_policy]
     schedule:
       interval: weekly
     cooldown:

@@ -1,9 +1,15 @@
 # Architecture
 
-Status: planned. The only code is the template's example in each language,
-which exists to prove the checks work and is not part of the project's
-design.
+Status: planned. The code is three Python distributions in one uv workspace,
+each exposing only its installed version so far: the client
+(`compute_jobs_cli`, at the root), the library job code imports
+(`compute_jobs`, in `lib/`), and the server's admin policy
+(`compute_jobs_admin_policy`, in `compute/server/admin_policy/`). The
+library never imports the client, and the admin policy imports neither,
+which the import-linter contracts in `pyproject.toml` check. "Packages and
+files" in [the compute jobs plan](compute-jobs.md) says what each will
+contain and who installs it.
 
-Replace this page in the PR that adds the project's first real module.
-Follow the `architecture-docs` skill: diagrams first, then system context,
-main data flow, module map, invariants, and failure handling.
+PR 15 of that plan replaces this page with the system as built. Follow the
+`architecture-docs` skill: diagrams first, then system context, main data
+flow, module map, invariants, and failure handling.

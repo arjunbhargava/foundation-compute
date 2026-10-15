@@ -12,7 +12,7 @@ rm -rf docs/_build docs/_generated
 
 # Python: sphinx-autoapi reads it during sphinx-build; enforce docstrings first.
 if [[ -f pyproject.toml ]]; then
-  uv run ruff check --quiet src
+  uv run ruff check --quiet src lib/src compute/server/admin_policy/src
 fi
 
 # Rust: rustdoc's HTML, published under api/rust/ and linked from

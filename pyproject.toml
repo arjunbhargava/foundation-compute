@@ -1,13 +1,27 @@
 [project]
 name = "foundation-compute"
 version = "0.1.0"
-description = "Compute infrastructure for agents."
-requires-python = "==3.14.*"
-dependencies = []
+description = "The compute-jobs client: launches, observes, and cancels jobs on a shared SkyPilot API server."
+# SkyPilot 0.14.0, which this distribution will depend on, supports Python up
+# to 3.13 (its PyPI classifiers; it sets no requires-python).
+requires-python = "==3.13.*"
+dependencies = ["compute-jobs", "compute-jobs-admin-policy"]
 
 [build-system]
 requires = ["uv_build>=0.12.23,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "compute_jobs_cli"
+
+# One lockfile, uv.lock, and one environment, .venv, for all three
+# distributions; docs/ is a separate uv project.
+[tool.uv.workspace]
+members = ["lib", "compute/server/admin_policy"]
+
+[tool.uv.sources]
+compute-jobs = { workspace = true }
+compute-jobs-admin-policy = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -30,7 +44,7 @@ ignore = ["D107"]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests aren't API reference; their names state the behaviour they check.
-"tests/**" = ["D"]
+"**/tests/**" = ["D"]
 ".github/scripts/*_test.py" = ["D"]
 "docs/*_test.py" = ["D"]
 
@@ -39,33 +53,61 @@ convention = "google"
 
 [tool.pyright]
 typeCheckingMode = "strict"
-# mutants/ is mutmut's generated copy of src/. Setting exclude replaces
-# pyright's defaults, so the other three entries restore them.
-exclude = ["mutants", "**/node_modules", "**/__pycache__", "**/.*"]
+# mutants/ is mutmut's generated copy of a distribution's src/. Setting
+# exclude replaces pyright's defaults, so the other three entries restore them.
+exclude = ["**/mutants", "**/node_modules", "**/__pycache__", "**/.*"]
 
 # Module boundaries, which `mise run lint:python` checks with lint-imports.
 # Add a contract for each rule:
 # https://import-linter.readthedocs.io/en/stable/contract_types.html
 [tool.importlinter]
-root_package = "foundation_compute"
-# Lets a contract name a package from outside foundation_compute, such as pytest.
+root_packages = ["compute_jobs_cli", "compute_jobs", "compute_jobs_admin_policy"]
+# Lets a contract name a package from outside the three, such as pytest.
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "Library code doesn't import pytest, a development-only dependency"
 type = "forbidden"
-source_modules = ["foundation_compute"]
+source_modules = ["compute_jobs_cli", "compute_jobs", "compute_jobs_admin_policy"]
 forbidden_modules = ["pytest"]
+
+# Job code installs compute-jobs on its own, without the client.
+[[tool.importlinter.contracts]]
+name = "The library doesn't import the client"
+type = "forbidden"
+source_modules = ["compute_jobs"]
+forbidden_modules = ["compute_jobs_cli"]
+
+# The server installs compute-jobs-admin-policy on its own.
+[[tool.importlinter.contracts]]
+name = "The admin policy imports neither the client nor the library"
+type = "forbidden"
+source_modules = ["compute_jobs_admin_policy"]
+forbidden_modules = ["compute_jobs_cli", "compute_jobs"]
 
 [tool.pytest]
 # -n auto runs tests in parallel, so a test that depends on shared state or on
 # another test's order fails early instead of intermittently later.
 addopts = ["-n", "auto", "--doctest-modules"]
-testpaths = ["src", "tests", ".github/scripts"]
+# Test files need distinct names across the three tests/ directories, because
+# pytest imports each by its file name.
+testpaths = [
+    "src",
+    "tests",
+    "lib/src",
+    "lib/tests",
+    "compute/server/admin_policy/src",
+    "compute/server/admin_policy/tests",
+    ".github/scripts",
+]
 strict = true
 filterwarnings = ["error"]
 
 [tool.mutmut]
+# mutmut guesses lib/ as the code to mutate when lib/ exists. .github/scripts/
+# mutate.sh runs mutmut in each distribution's directory, where it reads that
+# distribution's pyproject.toml.
+source_paths = ["src"]
 # mutmut records which tests call each function, and can't see calls made in
 # pytest-xdist's worker processes, so it runs the tests in one process.
 pytest_add_cli_args = ["-n", "0"]

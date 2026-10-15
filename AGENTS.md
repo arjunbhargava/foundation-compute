@@ -16,7 +16,7 @@ the same thing:
 | `mise run lint:workflows` | Run only the GitHub Actions workflow checks: actionlint, and zizmor's offline security audits. A finding in a workflow is suppressed with a `# zizmor: ignore[<audit>]` comment. |
 | `mise run lint:language-listings` | Check that each place that must list every language, such as the CI jobs and this table, lists each language in `.config/mise/conf.d/`, and name each place that lacks one. |
 | `mise run test` | Run all tests. |
-| `mise run test:python` | Run only the Python tests and docstring examples. Arguments after `--` go to pytest: `mise run test:python -- -k trapezoid`. |
+| `mise run test:python` | Run only the Python tests and docstring examples, of all three distributions. Arguments after `--` go to pytest: `mise run test:python -- lib` runs only the library's. |
 | `mise run test:lint-workflows-script` | Check that `.github/scripts/lint_workflows.sh` fails on a finding from either actionlint or zizmor, and runs both. |
 | `mise run test:language-listings-script` | Check that `lint:language-listings` passes for the repository, and names each place that lacks a new language, on copies of the files it reads. |
 | `mise run test:rulesets` | Check the changes `.github/rulesets/apply.sh` makes with and without `--auto`, and that `lint:rulesets` catches broken ruleset files, with a fake `gh`. |
@@ -25,7 +25,7 @@ the same thing:
 | `mise run test:needs-human-review-script` | Check that `.github/scripts/needs_human_review.sh` fails a PR with the `needs-human-review` label and passes one without. |
 | `mise run test:owned-paths-script` | Check which changed paths `.github/scripts/owned_paths.sh` finds in `.github/CODEOWNERS`, and when it can't tell, with a fake `gh`. |
 | `mise run test:mutate-script` | Check which files `.github/scripts/mutate.sh` mutates and what it reports, with fake mutation tools. |
-| `mise run mutate` | Mutation-test the code changed since the merge base with `origin/main`, and report each mutant no test caught. `mutate:<language>` runs one language. Python includes the changed `.github/scripts/*.py`; the shell scripts there have no mutation tool. `check` doesn't run it, because it's slow. |
+| `mise run mutate` | Mutation-test the code changed since the merge base with `origin/main`, and report each mutant no test caught. `mutate:<language>` runs one language. Python reports each distribution separately, and includes the changed `.github/scripts/*.py`; the shell scripts there have no mutation tool. `check` doesn't run it, because it's slow. |
 | `mise run docs` | Build the documentation site. |
 | `mise run test:docs` | Check that `docs/conf.py` points the links in `README.md` and `AGENTS.md` at the site's pages, turns those to other repository paths into text, and still fails on a path that is missing or outside the repository, by building a small site. |
 | `mise run spend` | Report tokens and cost per Cursor cloud agent run over the last 7 days, from the Cursor Admin API, with each run's task, repository, and branch and a subtotal per repository; needs `CURSOR_ADMIN_API_KEY`, and `CURSOR_API_KEY` for the labels. Arguments after `--` go to the script: `mise run spend -- --since 2026-09-26`. |
@@ -36,11 +36,24 @@ language the project has: Python.
 
 ## Where code lives
 
-- `src/foundation_compute/`: the Python package, tested in `tests/`.
-- `pyproject.toml`: Python dependencies and tool settings. `uv.lock` locks
-  the dependencies, and `.python-version` pins Python.
+- Three Python distributions, each with its code in `src/`, its tests in
+  `tests/`, and its own `pyproject.toml`, in one uv workspace whose root is
+  the root `pyproject.toml`:
+  - `foundation-compute`, at the root: the client, `compute_jobs_cli`, home
+    of the `compute-jobs` executable.
+  - `compute-jobs`, in `lib/`: the library job code imports,
+    `compute_jobs`.
+  - `compute-jobs-admin-policy`, in `compute/server/admin_policy/`: the
+    server's admin policy, `compute_jobs_admin_policy`.
+
+  `docs/compute-jobs.md` says what each contains and who installs it.
+- `pyproject.toml`: the workspace, the client's dependencies, and the tool
+  settings for all three. `uv.lock` locks the dependencies of all three, and
+  `.python-version` pins Python 3.13, the newest SkyPilot 0.14.0 supports.
 - Module boundaries, which `mise run lint` checks. Add a project's own boundaries:
-  - Python: a contract under `[tool.importlinter]` in `pyproject.toml`.
+  - Python: a contract under `[tool.importlinter]` in `pyproject.toml`. The
+    client may import the library; the library never imports the client,
+    and the admin policy imports neither.
 - `.github/scripts/`: the repository's own tooling, which people, agents, and
   CI run through `mise run`, such as `mutate.sh` and `agent_spend.py`. Each
   script is tested by the `_test` file next to it.
