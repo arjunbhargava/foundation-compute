@@ -13,6 +13,8 @@ on:
     paths:
       - src/**
       - tests/**
+      - lib/**
+      - compute/server/admin_policy/**
       - crates/**
       - packages/**
       - .github/scripts/*.py

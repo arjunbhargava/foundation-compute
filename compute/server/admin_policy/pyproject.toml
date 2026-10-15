@@ -1,0 +1,21 @@
+[project]
+name = "compute-jobs-admin-policy"
+version = "0.1.0"
+description = "The SkyPilot admin policy that turns a job's kind and profile into resources and enforces limits.yaml."
+requires-python = "==3.13.*"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+# The root pyproject.toml's tool settings apply here, except these, which
+# .github/scripts/mutate.sh needs when it runs mutmut in this directory.
+[tool.pytest]
+addopts = ["-n", "auto", "--doctest-modules"]
+testpaths = ["src", "tests"]
+strict = true
+filterwarnings = ["error"]
+
+[tool.mutmut]
+pytest_add_cli_args = ["-n", "0"]

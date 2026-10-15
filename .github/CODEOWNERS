@@ -22,3 +22,5 @@
 /Cargo.toml              @arjunbhargava
 /package.json            @arjunbhargava
 /copier.yml              @arjunbhargava
+# The shared server's configuration, IAM policies, and admin policy.
+/compute/server/         @arjunbhargava
