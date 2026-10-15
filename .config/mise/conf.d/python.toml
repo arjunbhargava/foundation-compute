@@ -2,13 +2,7 @@
 # because the docs build and the C and C++ tools run it too.
 
 [tasks."setup:python"]
-<<<<<<< before updating
-description = "Install the Python dependencies that uv.lock pins"
-# --all-packages also installs each workspace member's dev group, such as
-# lib/'s jsonschema, which a plain sync at the root leaves out.
-=======
 description = "Install the Python dependencies that uv.lock pins, and every uv workspace member"
->>>>>>> after updating
 run = "uv sync --locked --all-packages"
 
 [tasks."fmt:python"]
