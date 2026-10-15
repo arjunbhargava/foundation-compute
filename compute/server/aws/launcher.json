@@ -32,12 +32,6 @@
       "Resource": "arn:aws:ec2:us-east-1:<account_id>:instance/*"
     },
     {
-      "Sid": "TagVolumes",
-      "Effect": "Allow",
-      "Action": "ec2:CreateTags",
-      "Resource": "arn:aws:ec2:us-east-1:<account_id>:volume/*"
-    },
-    {
       "Sid": "DescribeEc2",
       "Effect": "Allow",
       "Action": "ec2:Describe*",
