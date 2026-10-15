@@ -86,7 +86,7 @@ def map(
         ValueError: ``gpus_per_evaluation`` or ``cpus_per_evaluation`` is
             negative, checked with ``COMPUTE_JOB_SMOKE=1`` too.
         RuntimeError: Ray isn't installed, or no Ray cluster answers at
-            ``RAY_ADDRESS``; Ray retries for several minutes before that.
+            ``RAY_ADDRESS``, after Ray's retries (821 s with Ray 2.59.0).
             Neither applies with ``COMPUTE_JOB_SMOKE=1``.
 
     Example:
