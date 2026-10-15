@@ -299,6 +299,7 @@ profiles:
     entries:                  # tried in order
       - instance_type: p5.48xlarge
         quota: p_on_demand
+        spot_quota: null      # the spot quota group; null unless spot_allowed
         accelerator: H100
         gpus_per_node: 8
         gpu_memory_gb: 80
@@ -321,15 +322,16 @@ The release ships these, with x86 families only, since the image is x86:
 | Profile | Entries, in order | Fits | Max nodes | Enabled |
 |---|---|---|---|---|
 | `cpu` | m7i.4xlarge (16 vCPU, $0.81/h) | CPU simulations, analysis, small drivers, the examples | 3 | yes |
-| `gpu-small` | g6.xlarge (1 × L4, 24 GB, $0.80/h); g6e.xlarge (1 × L40S, 48 GB, $1.861/h); g4dn.xlarge (1 × T4, 16 GB) | Development, small simulations, inference | 1 | yes |
-| `gpu-sim` | g6e.48xlarge (8 × L40S, $30.13/h); g6e.12xlarge (4 × L40S) | Rendering simulators (Isaac Sim, RTX), GPU physics, search | 2 | yes |
+| `gpu-small` | g6.xlarge (1 × L4, 24 GB, $0.80/h); g6e.xlarge (1 × L40S, 48 GB, $1.861/h); g4dn.xlarge (1 × T4, 16 GB, $0.526/h) | Development, small simulations, inference | 1 | yes |
+| `gpu-sim` | g6e.48xlarge (8 × L40S, $30.13/h); g6e.12xlarge (4 × L40S, $10.49/h) | Rendering simulators (Isaac Sim, RTX), GPU physics, search | 2 | yes |
 | `gpu-train` | g6e.48xlarge | Training that fits in 44 GB per GPU | 2 | yes |
 | `gpu-sim-large` | g6e.48xlarge, on demand only | Searches over more than 16 L40S | 4 | no, until the G quotas change |
 | `gpu-train-large` | p5.48xlarge (8 × H100, 80 GB, 192 vCPU, $55.04/h); p4d.24xlarge (8 × A100, 40 GB, 96 vCPU, $21.96/h); both on demand only | Large-model training | 2 | no, until the P quota is raised |
 
-Prices without a figure (g4dn.xlarge, g6e.12xlarge) are filled in from AWS's
-price list in PR 4; they don't change the ceiling, which the dearest entry
-per vCPU sets. `cpu` allows 3 nodes, not 4, because the server's node takes 8
+Prices here are rounded; `limits.yaml` has AWS's exact list prices, and its
+comments say where they came from. Every profile allows 1440 minutes, and
+`cpu` has no spot, since no Standard spot quota is requested for the ceiling
+to count. `cpu` allows 3 nodes, not 4, because the server's node takes 8
 of the 64 Standard vCPUs. A 24 GB training profile (8 × A10G, g5.48xlarge) can
 be added as data if a project wants one.
 

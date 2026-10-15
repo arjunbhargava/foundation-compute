@@ -1,10 +1,11 @@
 # Architecture
 
-Status: planned. The code is three Python distributions in one uv workspace,
-each exposing only its installed version so far: the client
+Status: planned. The code is three Python distributions in one uv workspace:
+the client
 (`compute_jobs_cli`, at the root), the library job code imports
 (`compute_jobs`, in `lib/`), and the server's admin policy
-(`compute_jobs_admin_policy`, in `compute/server/admin_policy/`). The
+(`compute_jobs_admin_policy`, in `compute/server/admin_policy/`), which so
+far holds `limits.yaml`, the compute list, and its validation. The
 library never imports the client, and the admin policy imports neither,
 which the import-linter contracts in `pyproject.toml` check. "Packages and
 files" in [the compute jobs plan](compute-jobs.md) says what each will
