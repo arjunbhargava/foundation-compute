@@ -4,9 +4,8 @@
 machine ("Admin tasks" in docs/compute-jobs.md). It reads AWS only through
 the AWS CLI's get, list, and describe calls, with the profile that
 ``COMPUTE_SERVER_ADMIN_AWS_PROFILE`` names, and sends the server one request
-without a token. It prints, as information, the most the EC2 vCPU quotas let
-run an hour, which never fails it, since spend is limited in software; then
-each check's result; then the failed ones.
+without a token. It prints the quotas' spending ceiling as information, then
+each check's result, then the failed ones.
 
 Exit codes: 0 when every check passed; 1 when any failed; 2 when nothing could
 be checked, because the profile variable is unset, the AWS CLI is missing, or
@@ -125,20 +124,23 @@ def main(
 
 
 def spending_ceiling_table(limits: Limits) -> str:
-    """Return a table of each quota group's ceiling in USD an hour, with the total.
+    """Return each quota group's spending ceiling in USD an hour, the total, and the cap.
 
-    Each group's ceiling is its quota full of its dearest enabled entry per
-    vCPU. It is information, compared with ``daily_cap_usd`` / 24 but never a
-    failure, because spend is limited in software rather than by the quotas.
+    Never a failure: spend is limited in software, not by the quotas.
     """
     ceiling = spending_ceiling(limits)
-    rows = [f"{'Quota group':<20} {'vCPUs':>6} {'$/h at most':>12}"]
-    for group, usd_per_hour in ceiling.usd_per_hour_by_quota.items():
-        rows.append(f"{group:<20} {limits['quotas'][group]:>6} {usd_per_hour:>12.2f}")
-    rows.append(f"{'Total':<20} {'':>6} {ceiling.usd_per_hour:>12.2f}")
-    rows.append(f"{'daily_cap_usd / 24':<20} {'':>6} {ceiling.cap_usd_per_hour:>12.2f}")
+    rows = [
+        ("Quota group", "vCPUs", "$/h at most"),
+        *(
+            (g, str(limits["quotas"][g]), f"{usd:.2f}")
+            for g, usd in ceiling.usd_per_hour_by_quota.items()
+        ),
+        ("Total", "", f"{ceiling.usd_per_hour:.2f}"),
+        ("daily_cap_usd / 24", "", f"{ceiling.cap_usd_per_hour:.2f}"),
+    ]
+    lines = [f"{name:<20} {vcpus:>6} {usd:>12}" for name, vcpus, usd in rows]
     title = "The quotas' spending ceiling, for information only:"
-    return "\n".join([title, *rows, ""])
+    return "\n".join([title, *lines, ""])
 
 
 def check_quotas(limits: Limits, aws: Aws) -> list[Result]:

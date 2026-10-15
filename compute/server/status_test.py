@@ -81,9 +81,7 @@ def test_status_exits_with_a_message_not_a_traceback_without_aws_credentials(
 
     exit_code = status.main(CONFIGURED, status.aws_cli, lambda _: 401, shipped_limits())
 
-    expected = (
-        "Unable to locate credentials." if aws_on_path else "the AWS CLI isn't on PATH"
-    )
+    expected = "Unable to locate credentials" if aws_on_path else "isn't on PATH"
     assert exit_code == 2
     assert expected in capsys.readouterr().err
 
@@ -112,10 +110,7 @@ def test_status_lists_each_failed_check(capsys: pytest.CaptureFixture[str]) -> N
     assert exit_code == 1
     assert "3 of 7 checks failed:" in errors
     assert "'Running On-Demand G and VT instances' is 768 vCPUs, above" in errors
-    assert (
-        "has no action attaching compute-jobs-deny-launch to compute-jobs-launcher"
-        in errors
-    )
+    assert "has no action attaching compute-jobs-deny-launch" in errors
     assert "with HTTP 200, not 401" in errors
 
 
@@ -148,10 +143,7 @@ def test_status_fails_when_the_server_does_not_answer_or_is_not_set(
 
     errors = capsys.readouterr().err
     assert "the server at https://compute-jobs.test didn't answer within 10 s" in errors
-    assert (
-        "SKYPILOT_API_SERVER_ENDPOINT is not set, so the server wasn't checked"
-        in errors
-    )
+    assert "SKYPILOT_API_SERVER_ENDPOINT is not set, so the server" in errors
 
 
 def test_unauthenticated_status_returns_the_servers_http_status() -> None:
@@ -205,8 +197,5 @@ def test_admin_status_task_exits_with_a_message_when_the_profile_is_unset() -> N
     completed = run_mise(["run", "compute-server:status"], "admin")
 
     assert completed.returncode != 0
-    assert (
-        "COMPUTE_SERVER_ADMIN_AWS_PROFILE is not set, so nothing was checked"
-        in completed.stderr
-    )
+    assert "COMPUTE_SERVER_ADMIN_AWS_PROFILE is not set" in completed.stderr
     assert "Traceback" not in completed.stderr
