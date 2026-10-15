@@ -5,7 +5,10 @@ description = "Code that runs inside a compute job: the job file, progress repor
 # Job code imports this library on the project's own Python, not the client's
 # 3.13.
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "jsonschema>=4.26.0",
+    "pyyaml>=6.0.3",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.23,<0.13.0"]
@@ -21,8 +24,3 @@ filterwarnings = ["error"]
 
 [tool.mutmut]
 pytest_add_cli_args = ["-n", "0"]
-
-[dependency-groups]
-dev = [
-    "jsonschema>=4.26.0",
-]
