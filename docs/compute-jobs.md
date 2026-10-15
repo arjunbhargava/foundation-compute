@@ -256,6 +256,7 @@ every kind defaults to on-demand machines. Users don't write Ray code:
 ```python
 from compute_jobs import fanout, progress
 
+optimizer = fanout.restore(initial=Optimizer(seed=1234))
 for generation in fanout.resume_generations(total=50):
     candidates = optimizer.ask()
     fitness = fanout.map(evaluate, candidates, gpus_per_evaluation=0.25)
@@ -270,7 +271,8 @@ for generation in fanout.resume_generations(total=50):
 `"auto"`, turns off forwarding of workers' output to the driver, and counts
 completed and failed evaluations in `progress.json`. With
 `COMPUTE_JOB_SMOKE=1` it runs serially on the local machine, as `job:dry-run`
-uses it.
+uses it. `fanout.restore` returns the state the last checkpoint saved, or its
+`initial` argument when there is none.
 
 **Spot.** `use_spot: true` is accepted for any kind; the dry run warns when
 the job writes no checkpoints, since a preemption then restarts it from the
@@ -715,7 +717,7 @@ match.
 | Distribution | Import package | Python | Contents | Installed by |
 |---|---|---|---|---|
 | `foundation-compute`, at the root | `compute_jobs_cli` | 3.13 | The `compute-jobs` executable: configuration checks, dry-run, launch, observe, cancel; depends on `skypilot==0.14.0`, boto3, and the two below | A project's mise pin |
-| `compute-jobs`, in `lib/` | `compute_jobs` | 3.12 and later (unverified for Ray on 3.14) | `job_file`, `progress`, `run` (the wrapper), `run_record`, `archive`, `fanout` (Ray as its extra), and `schemas/`; depends on jsonschema and PyYAML (both MIT) | The image; a project's `pyproject.toml` |
+| `compute-jobs`, in `lib/` | `compute_jobs` | 3.12 and later; `fanout`'s tests pass with Ray 2.59.0 on 3.14, whose PyPI release has 3.14 wheels, though Ray's installation page lists only up to 3.13 | `job_file`, `progress`, `run` (the wrapper), `run_record`, `archive`, `fanout` (Ray as its extra), and `schemas/`; depends on jsonschema and PyYAML (both MIT) | The image; a project's `pyproject.toml` |
 | `compute-jobs-admin-policy`, in `compute/server/admin_policy/` | `compute_jobs_admin_policy` | 3.13 | The admin policy and `limits.yaml` | The server's `preDeployHook`; the CLI, for dry-run |
 
 The placeholder package `src/foundation_compute/` is removed in PR 1, and
