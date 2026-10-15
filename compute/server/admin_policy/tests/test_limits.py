@@ -7,6 +7,7 @@ from compute_jobs_admin_policy.limits import (
     InvalidLimitsError,
     parse_limits,
     shipped_limits,
+    spending_ceiling,
 )
 
 SHIPPED_YAML = files("compute_jobs_admin_policy").joinpath("limits.yaml").read_text()
@@ -25,6 +26,22 @@ PROFILES_ON_THE_PAGE = {
 
 def shipped_document() -> dict[str, Any]:
     return yaml.safe_load(SHIPPED_YAML)
+
+
+def enable(document: dict[str, Any], profile: str) -> None:
+    for entry in document["profiles"][profile]["entries"]:
+        entry["enabled"] = True
+
+
+def ceiling_after(
+    quotas: dict[str, int], enabled_profiles: list[str]
+) -> tuple[float, bool]:
+    document = shipped_document()
+    document["quotas"].update(quotas)
+    for profile in enabled_profiles:
+        enable(document, profile)
+    ceiling = spending_ceiling(parse_limits(yaml.safe_dump(document)))
+    return ceiling.usd_per_hour, ceiling.refusal() is None
 
 
 def test_the_shipped_limits_validate_and_match_the_profiles_on_the_page() -> None:
@@ -49,6 +66,46 @@ def test_the_shipped_limits_validate_and_match_the_profiles_on_the_page() -> Non
         "p_on_demand": 0,
         "p_spot": 0,
     }
+
+
+# Every row of the two tables under "Spending ceiling" in docs/compute-jobs.md.
+@pytest.mark.parametrize(
+    ("quotas", "enabled_profiles", "usd_per_hour", "within_cap"),
+    [
+        ({}, [], 360.55, True),
+        ({}, ["gpu-train-large"], 360.55, True),
+        ({"p_on_demand": 192}, ["gpu-train-large"], 415.59, True),
+        ({"p_on_demand": 384}, ["gpu-train-large"], 470.63, False),
+        ({"p_on_demand": 384, "g_vt_spot": 256}, ["gpu-train-large"], 411.07, True),
+        ({"g_vt_on_demand": 768, "g_vt_spot": 0}, ["gpu-sim-large"], 360.54, True),
+        (
+            {"g_vt_on_demand": 0, "g_vt_spot": 0, "p_on_demand": 1536},
+            ["gpu-train-large"],
+            443.55,
+            False,
+        ),
+    ],
+)
+def test_the_spending_ceiling_matches_the_page_and_fails_over_the_daily_cap(
+    quotas: dict[str, int],
+    enabled_profiles: list[str],
+    usd_per_hour: float,
+    within_cap: bool,
+) -> None:
+    assert ceiling_after(quotas, enabled_profiles) == (usd_per_hour, within_cap)
+
+
+def test_a_ceiling_over_the_cap_names_the_total_and_the_cap() -> None:
+    document = shipped_document()
+    document["quotas"]["p_on_demand"] = 384
+    enable(document, "gpu-train-large")
+
+    refusal = spending_ceiling(parse_limits(yaml.safe_dump(document))).refusal()
+
+    assert refusal is not None
+    assert "$470.63 an hour" in refusal
+    assert "p_on_demand $110.08" in refusal
+    assert "$416.67 an hour" in refusal
 
 
 def edit_cpu_entry(field: str, value: object) -> str:
