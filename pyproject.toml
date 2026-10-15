@@ -96,18 +96,17 @@ forbidden_modules = ["compute_jobs_cli", "compute_jobs"]
 [tool.pytest]
 # -n auto runs tests in parallel, so a test that depends on shared state or on
 # another test's order fails early instead of intermittently later.
-addopts = ["-n", "auto", "--doctest-modules"]
-# Test files need distinct names across the three tests/ directories, because
-# pytest imports each by its file name.
-testpaths = [
-    "src",
-    "tests",
-    "lib/src",
-    "lib/tests",
-    "compute/server/admin_policy/src",
-    "compute/server/admin_policy/tests",
-    ".github/scripts",
-]
+#
+# importlib import mode imports each test file under its own path, so test
+# files in different distributions' tests/ directories may share a name, which
+# the default mode rejects. It doesn't put a test file's directory on sys.path,
+# so pythonpath lets the scripts' tests import the script beside them.
+#
+# conftest.py adds the src/ and tests/ of each uv workspace member to
+# testpaths when a run names no path.
+addopts = ["-n", "auto", "--doctest-modules", "--import-mode=importlib"]
+pythonpath = [".github/scripts"]
+testpaths = ["src", "tests", ".github/scripts"]
 strict = true
 filterwarnings = ["error"]
 
