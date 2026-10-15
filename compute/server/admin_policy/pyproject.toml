@@ -3,7 +3,12 @@ name = "compute-jobs-admin-policy"
 version = "0.1.0"
 description = "The SkyPilot admin policy that turns a job's kind and profile into resources and enforces limits.yaml."
 requires-python = "==3.13.*"
-dependencies = []
+# SkyPilot 0.14.0 itself requires jsonschema and pyyaml, so the server's
+# environment, where this installs, already has both.
+dependencies = [
+    "jsonschema>=4.26.0",
+    "pyyaml>=6.0.3",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.23,<0.13.0"]
@@ -19,3 +24,9 @@ filterwarnings = ["error"]
 
 [tool.mutmut]
 pytest_add_cli_args = ["-n", "0"]
+
+[dependency-groups]
+dev = [
+    "types-jsonschema>=4.26.0.20261006",
+    "types-pyyaml>=6.0.12.20260906",
+]
