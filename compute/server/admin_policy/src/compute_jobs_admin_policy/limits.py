@@ -1,18 +1,26 @@
-"""``limits.yaml``, the compute list: what jobs may run on, and the caps on spend.
+"""``limits.yaml``, the compute list, and the spending-ceiling check on it.
 
 ``limits.yaml`` names each hardware profile a job file may ask for, as an
 ordered list of EC2 instance types, together with the EC2 vCPU quotas and the
 daily spending cap. It is data: adding or enabling an instance type is an
 edit to that file, which :func:`parse_limits` validates against
 ``limits.v1.schema.json`` in this package.
+
+EC2's vCPU quotas cap what can run at once, so they also cap the hourly spend.
+:func:`spending_ceiling` fills each quota group with its dearest enabled
+entry per vCPU, and the result must stay within ``daily_cap_usd`` / 24.
 """
 
 import json
+from collections.abc import Mapping
+from dataclasses import dataclass
 from importlib.resources import files
 from typing import TypedDict, cast
 
 import yaml
 from jsonschema import ValidationError, validate
+
+HOURS_PER_DAY = 24
 
 
 class InstanceTypeEntry(TypedDict):
@@ -149,3 +157,74 @@ def parse_limits(yaml_text: str) -> Limits:
                         f"{sorted(limits['quotas'])}"
                     )
     return limits
+
+
+@dataclass(frozen=True)
+class SpendingCeiling:
+    """The most the enabled entries can cost an hour, with every quota full.
+
+    Attributes:
+        usd_per_hour_by_quota: Each quota group's ceiling in USD per hour:
+            its vCPU quota times the dearest price per vCPU among the enabled
+            entries that count against it, rounded to the cent; 0 for a
+            group no enabled entry uses.
+        usd_per_hour: The sum of the groups' ceilings.
+        cap_usd_per_hour: ``daily_cap_usd`` / 24.
+    """
+
+    usd_per_hour_by_quota: Mapping[str, float]
+    usd_per_hour: float
+    cap_usd_per_hour: float
+
+    def refusal(self) -> str | None:
+        """Return why the ceiling exceeds the cap, or None if it is within it.
+
+        Example:
+            >>> print(spending_ceiling(shipped_limits()).refusal())
+            None
+        """
+        if self.usd_per_hour <= self.cap_usd_per_hour:
+            return None
+        groups = ", ".join(
+            f"{name} ${usd:.2f}" for name, usd in self.usd_per_hour_by_quota.items()
+        )
+        return (
+            f"limits.yaml's spending ceiling is ${self.usd_per_hour:.2f} an hour ({groups}), "
+            f"over daily_cap_usd / {HOURS_PER_DAY} = ${self.cap_usd_per_hour:.2f} an hour; "
+            "lower a quota or disable an entry, or ask the owner to raise the daily cap"
+        )
+
+
+def spending_ceiling(limits: Limits) -> SpendingCeiling:
+    """Return the hourly spend with every quota group full of its dearest entry.
+
+    An enabled entry counts against its ``quota`` group and, when spot is
+    allowed, its ``spot_quota`` group, at its on-demand price in both.
+
+    Example:
+        >>> spending_ceiling(shipped_limits()).usd_per_hour
+        360.55
+    """
+    usd_per_vcpu_hour = dict.fromkeys(limits["quotas"], 0.0)
+    for profile in limits["profiles"].values():
+        for entry in profile["entries"]:
+            if not entry["enabled"]:
+                continue
+            entry_usd_per_vcpu_hour = entry["usd_per_hour"] / entry["vcpus"]
+            for group in (entry["quota"], entry["spot_quota"]):
+                if group is not None:
+                    usd_per_vcpu_hour[group] = max(
+                        usd_per_vcpu_hour[group], entry_usd_per_vcpu_hour
+                    )
+
+    # ponytail: rounding each group to the nearest cent, as the table in
+    # docs/compute-jobs.md does, can understate the total by $0.005 a group.
+    by_quota = {
+        group: round(vcpus * usd_per_vcpu_hour[group], 2)
+        for group, vcpus in limits["quotas"].items()
+    }
+    return SpendingCeiling(
+        usd_per_hour_by_quota=by_quota,
+        usd_per_hour=round(sum(by_quota.values()), 2),
+        cap_usd_per_hour=limits["daily_cap_usd"] / HOURS_PER_DAY,
+    )
