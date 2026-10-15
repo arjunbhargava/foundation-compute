@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Checks which files .github/scripts/mutate.sh mutates and what its report
 # says, without running a mutation tool. It runs the script in a temporary
-# git repository with one package in each language and two Python scripts in
-# .github/scripts/, where fake uv, cargo, and pnpm record the files or module
+# git repository with one package in each language, a second Python
+# distribution in lib/, and two Python scripts in .github/scripts/, where fake uv, cargo, and pnpm record the files or module
 # globs they are given and print canned results: one surviving and one caught
 # mutant, or two caught mutants if FAKE_ALL_KILLED is set. For the scripts,
 # fake uv reports one mutant, which survives unless FAKE_ALL_KILLED is set.
@@ -26,6 +26,8 @@ main() {
   check python src/pkg/a.py 'pkg.a.x*' "1 of 2 mutants survived"
   check python src/pkg/__init__.py 'pkg.x*' "1 of 2 mutants survived"
   check python tests/test_a.py $'pkg.x*\npkg.a.x*\npkg.b.x*' "1 of 2 mutants survived"
+  check python lib/src/lpkg/a.py 'lpkg.a.x*' "Python (lib) mutation testing: 1 of 2 mutants survived"
+  check python lib/tests/test_l.py $'lpkg.x*\nlpkg.a.x*' "Python (lib) mutation testing: 1 of 2 mutants survived"
   check python crates/c/src/x.rs "" "no source or test file changed"
   check rust crates/c/src/x.rs crates/c/src/x.rs "1 of 2 mutants survived"
   check rust crates/c/tests/t.rs $'crates/c/src/lib.rs\ncrates/c/src/x.rs' "1 of 2 mutants survived"
@@ -36,14 +38,14 @@ main() {
 
   check python .github/scripts/script_a.py 'script_a.x*' "Python scripts mutation testing: 1 of 1 mutants survived"
   check python .github/scripts/script_a_test.py $'script_a.x*\nscript_b.x*' "Python scripts mutation testing: 1 of 1 mutants survived"
-  check python .github/scripts/mutate.sh $'pkg.x*\npkg.a.x*\npkg.b.x*\nscript_a.x*\nscript_b.x*' "Python scripts mutation testing: 1 of 1 mutants survived"
+  check python .github/scripts/mutate.sh $'lpkg.x*\nlpkg.a.x*\npkg.x*\npkg.a.x*\npkg.b.x*\nscript_a.x*\nscript_b.x*' "Python scripts mutation testing: 1 of 1 mutants survived"
   check python .github/scripts/shell_script.sh "" "Python scripts mutation testing: no source or test file changed"
 
   FAKE_ALL_KILLED=1 check python src/pkg/a.py 'pkg.a.x*' "0 of 2 mutants survived"
   FAKE_ALL_KILLED=1 check python .github/scripts/script_a.py 'script_a.x*' "Python scripts mutation testing: 0 of 1 mutants survived"
   FAKE_ALL_KILLED=1 check rust crates/c/src/x.rs crates/c/src/x.rs "0 of 2 mutants survived"
   FAKE_ALL_KILLED=1 check typescript packages/p/src/a.ts packages/p/src/a.ts "0 of 2 mutants survived"
-  echo ".github/scripts/mutate.sh chose the expected files and reported them in all 18 cases."
+  echo ".github/scripts/mutate.sh chose the expected files and reported them in all 20 cases."
 }
 
 # Writes fake uv, cargo, and pnpm, which append the module globs or files
@@ -58,6 +60,9 @@ case "$*" in
       # The scratch project has the scripts, without their tests, in src/, the
       # tests, without the scripts, in tests/, and the root's environment.
       [[ -f src/script_a.py && -f src/script_b.py && ! -e src/script_a_test.py && -f tests/script_a_test.py && ! -e tests/script_a.py && -f pyproject.toml && -n ${UV_PROJECT:-} ]] || { echo "fake uv: the scratch project is wrong: $(find . -type f | sort | tr '\n' ' ')" >&2; exit 1; }
+    else
+      # mutmut runs in a distribution's directory, with the root's environment.
+      [[ -f pyproject.toml && -d src && -n ${UV_PROJECT:-} ]] || { echo "fake uv: mutmut ran outside a distribution's directory, in $PWD" >&2; exit 1; }
     fi
     printf '%s\n' "${@:4}" >> "$FAKE_TOOL_ARGUMENTS"
     ;;
@@ -117,10 +122,12 @@ EOF
 
 make_repository() {
   mkdir -p "$work/repo/.github/scripts" "$work/repo/src/pkg" "$work/repo/tests" \
+    "$work/repo/lib/src/lpkg" "$work/repo/lib/tests" \
     "$work/repo/crates/c/src" "$work/repo/crates/c/tests" "$work/repo/packages/p/src"
   cd "$work/repo"
   cp "$script_dir/mutate.sh" .github/scripts/
-  touch src/pkg/__init__.py src/pkg/a.py src/pkg/b.py tests/test_a.py \
+  touch pyproject.toml src/pkg/__init__.py src/pkg/a.py src/pkg/b.py tests/test_a.py \
+    lib/pyproject.toml lib/src/lpkg/__init__.py lib/src/lpkg/a.py lib/tests/test_l.py \
     crates/c/src/lib.rs crates/c/src/x.rs crates/c/tests/t.rs \
     packages/p/src/a.ts packages/p/src/b.ts packages/p/src/a.test.ts stryker.config.json \
     .github/scripts/script_a.py .github/scripts/script_b.py .github/scripts/script_a_test.py \

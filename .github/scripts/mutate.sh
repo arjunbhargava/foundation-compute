@@ -50,11 +50,30 @@ mutate_python() {
   mutate_python_scripts
 }
 
+# A distribution is a directory with a pyproject.toml and a src/, such as the
+# root or a uv workspace member. mutmut runs in each distribution's directory,
+# because it derives a module's name from the file's path with only a leading
+# src/ removed, and reads its settings from that directory's pyproject.toml.
 mutate_python_source() {
+  local manifest
+  for manifest in $(git ls-files -- pyproject.toml '*/pyproject.toml'); do
+    if [[ -d $(dirname "$manifest")/src ]]; then
+      mutate_python_distribution "$(dirname "$manifest")"
+    fi
+  done
+}
+
+# Argument: the distribution's directory, relative to the repository root.
+mutate_python_distribution() {
+  local directory=$1 label=Python prefix=
+  if [[ $directory != . ]]; then
+    label="Python ($directory)"
+    prefix=$directory/
+  fi
   local files
-  files=$(files_to_mutate tests/ 'src/*.py')
+  files=$(files_to_mutate "${prefix}tests/" "${prefix}src/*.py")
   if [[ -z $files ]]; then
-    report Python "" 0 0 ""
+    report "$label" "" 0 0 ""
     return
   fi
 
@@ -64,13 +83,14 @@ mutate_python_source() {
   # mutants.
   local module_globs=() path module
   for path in $files; do
-    module=${path#src/}
+    module=${path#"${prefix}src/"}
     module=${module%.py}
     module=${module%/__init__}
     module_globs+=("${module//\//.}.x*")
   done
 
-  run_mutmut Python "$files" "${module_globs[@]}"
+  local project_root=$PWD
+  (cd "$directory" && UV_PROJECT=$project_root run_mutmut "$label" "$files" "${module_globs[@]}")
 }
 
 # The scripts in .github/scripts/ are imported by bare name, as in `import
@@ -247,7 +267,7 @@ mutate_typescript() {
 # its workflow, or stryker.config.json, which only mutation testing reads,
 # counts as a change to every package's tests, so that the PR making it runs
 # every step here in CI. In a git pathspec, * also matches /,
-# so src/*.py includes src/foundation_compute/__init__.py.
+# so src/*.py includes src/compute_jobs_cli/__init__.py.
 files_to_mutate() {
   local tests=$1
   shift
