@@ -1,0 +1,12 @@
+# The owner's tasks for the shared server and its AWS account, which mise
+# loads, along with mise.toml, only when MISE_ENV=admin. So `mise run check`,
+# CI, and agents neither list these tasks nor install their tools; only a
+# person runs them ("Admin tasks" in docs/compute-jobs.md). Each needs
+# COMPUTE_SERVER_ADMIN_AWS_PROFILE, the AWS CLI profile of an IAM Identity
+# Center login on the owner's machine, never a Cursor secret.
+[tools]
+aws-cli = "2.38.1"
+
+[tasks."compute-server:status"]
+description = "Check the server and its AWS account without changing either, and list each check that failed"
+run = "uv run python compute/server/status.py"

@@ -92,7 +92,7 @@ jobs:
             echo "install-script=$(changed .cursor/install.sh .cursor/environment.json .config/mise/conf.d/)"
             # The site includes README.md and AGENTS.md as pages.
             echo "docs=$(changed docs/ README.md AGENTS.md)"
-            echo "python=$(language_changed pyproject.toml '*.py' uv.lock .python-version .config/mise/conf.d/python.toml lib/ compute/server/)"
+            echo "python=$(language_changed pyproject.toml '*.py' uv.lock .python-version .config/mise/conf.d/python.toml mise.admin.toml lib/ compute/server/)"
             echo "rust=$(language_changed Cargo.toml crates/ Cargo.lock rust-toolchain.toml deny.toml .config/mise/conf.d/rust.toml)"
             echo "typescript=$(language_changed package.json packages/ pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json biome.json .dependency-cruiser.cjs .config/mise/conf.d/typescript.toml)"
             echo "cpp=$(language_changed CMakeLists.txt cpp/ CMakePresets.json .clang-format .clang-tidy Doxyfile .config/mise/conf.d/cpp.toml)"

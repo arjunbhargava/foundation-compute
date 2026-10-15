@@ -108,6 +108,7 @@ testpaths = [
     "compute/server/admin_policy/src",
     "compute/server/admin_policy/tests",
     "compute/server/aws",
+    "compute/server/status_test.py",
     ".github/scripts",
 ]
 strict = true
