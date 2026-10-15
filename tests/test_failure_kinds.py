@@ -7,10 +7,16 @@ from pathlib import Path
 import pytest
 
 from compute_jobs_cli import cli
-from compute_jobs_cli.arguments import COMMANDS
+from compute_jobs_cli.arguments import COMMANDS, SERVER_COMMANDS
+from compute_jobs_cli.configuration import ENDPOINT_VARIABLE, TOKEN_VARIABLE
 from compute_jobs_cli.kinds import FailureKind
 
-Invoke = Callable[[Sequence[str]], tuple[int, list[str]]]
+Invoke = Callable[[Sequence[str], Mapping[str, str]], tuple[int, list[str]]]
+
+CONFIGURED = {
+    ENDPOINT_VARIABLE: "https://jobs.example.org",
+    TOKEN_VARIABLE: "token-value",
+}
 
 VALID_ARGUMENTS = {
     "dry-run": ["dry-run", "jobs/search.yaml"],
@@ -18,6 +24,14 @@ VALID_ARGUMENTS = {
     "observe": ["observe", "pr81-search-3f9a2c1d"],
     "cancel": ["cancel", "pr81-search-3f9a2c1d"],
 }
+
+V0_NOT_CONFIGURED_MESSAGE = """\
+SKYPILOT_API_SERVER_ENDPOINT is not set, so no job can be launched or
+observed. This project is a client of a shared SkyPilot API server: ask the
+owner to add SKYPILOT_API_SERVER_ENDPOINT and SKYPILOT_SERVICE_ACCOUNT_TOKEN
+as Cursor secrets. The server is run with the compute-server-admin skill;
+an agent never starts one. Nothing was started.
+"""
 
 
 class RecordingSdk:
@@ -41,9 +55,11 @@ class RecordingSdk:
 def invoke(capsys: pytest.CaptureFixture[str]) -> Invoke:
     """Run main with a recording SDK that must stay unused; return exit code and stderr lines."""
 
-    def run(argv: Sequence[str]) -> tuple[int, list[str]]:
+    def run(
+        argv: Sequence[str], environment: Mapping[str, str]
+    ) -> tuple[int, list[str]]:
         sdk = RecordingSdk()
-        exit_code = cli.main(argv, sdk)
+        exit_code = cli.main(argv, environment, sdk)
         captured = capsys.readouterr()
         assert (sdk.calls, captured.out) == ([], "")
         return exit_code, captured.err.splitlines()
@@ -51,11 +67,47 @@ def invoke(capsys: pytest.CaptureFixture[str]) -> Invoke:
     return run
 
 
+@pytest.mark.parametrize("command", SERVER_COMMANDS)
+def test_ac1_an_unset_variable_exits_2_with_the_v0_message_and_calls_no_sdk(
+    command: str, invoke: Invoke
+) -> None:
+    exit_code, stderr_lines = invoke(VALID_ARGUMENTS[command], {})
+
+    assert exit_code == 2
+    assert stderr_lines[0] == "kind=not_configured"
+    assert "\n".join(stderr_lines[1:]) + "\n" == V0_NOT_CONFIGURED_MESSAGE
+
+
+@pytest.mark.parametrize("command", SERVER_COMMANDS)
+@pytest.mark.parametrize(
+    "environment",
+    [
+        {ENDPOINT_VARIABLE: "https://jobs.example.org"},
+        {TOKEN_VARIABLE: "token-value"},
+        {ENDPOINT_VARIABLE: "http://jobs.example.org", TOKEN_VARIABLE: "token-value"},
+        {ENDPOINT_VARIABLE: "https://localhost:46580", TOKEN_VARIABLE: "token-value"},
+    ],
+)
+def test_ac1_each_misconfiguration_exits_2_and_calls_no_sdk(
+    command: str, environment: dict[str, str], invoke: Invoke
+) -> None:
+    exit_code, stderr_lines = invoke(VALID_ARGUMENTS[command], environment)
+
+    assert (exit_code, stderr_lines[0]) == (2, "kind=not_configured")
+    assert "token-value" not in "\n".join(stderr_lines)
+
+
+def test_ac1_dry_run_needs_no_server_variables_and_calls_no_sdk(invoke: Invoke) -> None:
+    exit_code, stderr_lines = invoke(VALID_ARGUMENTS["dry-run"], {})
+
+    assert (exit_code, stderr_lines[0]) == (1, "kind=internal_error")
+
+
 @pytest.mark.parametrize("command", COMMANDS)
 def test_ac2_an_argument_error_exits_1_not_argparses_2(
     command: str, invoke: Invoke
 ) -> None:
-    exit_code, _ = invoke([*VALID_ARGUMENTS[command], "--unknown-option"])
+    exit_code, _ = invoke([*VALID_ARGUMENTS[command], "--unknown-option"], CONFIGURED)
 
     assert exit_code == 1
 
@@ -76,7 +128,7 @@ def test_ac2_an_argument_error_exits_1_not_argparses_2(
 def test_ac2_each_malformed_command_line_exits_1(
     argv: list[str], invoke: Invoke
 ) -> None:
-    exit_code, stderr_lines = invoke(argv)
+    exit_code, stderr_lines = invoke(argv, CONFIGURED)
 
     assert (exit_code, stderr_lines[0]) == (1, "kind=argument_error")
 
@@ -88,14 +140,26 @@ def test_ac2_each_malformed_command_line_exits_1(
 def test_ac2_each_observe_form_in_the_commands_table_parses(
     argv: list[str], invoke: Invoke
 ) -> None:
-    _, stderr_lines = invoke(argv)
+    _, stderr_lines = invoke(argv, CONFIGURED)
 
     assert "observe is not implemented yet" in stderr_lines[1]
 
 
+@pytest.mark.parametrize("command", SERVER_COMMANDS)
+def test_ac23_not_configured_by_an_unset_variable(command: str, invoke: Invoke) -> None:
+    environment = {ENDPOINT_VARIABLE: CONFIGURED[ENDPOINT_VARIABLE]}
+
+    exit_code, stderr_lines = invoke(VALID_ARGUMENTS[command], environment)
+
+    assert (exit_code, stderr_lines[0]) == (2, "kind=not_configured")
+    assert f"{TOKEN_VARIABLE} is not set" in stderr_lines[1]
+
+
 @pytest.mark.parametrize("command", COMMANDS)
 def test_ac23_argument_error_by_an_unknown_option(command: str, invoke: Invoke) -> None:
-    exit_code, stderr_lines = invoke([*VALID_ARGUMENTS[command], "--unknown-option"])
+    exit_code, stderr_lines = invoke(
+        [*VALID_ARGUMENTS[command], "--unknown-option"], CONFIGURED
+    )
 
     assert (exit_code, stderr_lines[0]) == (1, "kind=argument_error")
     assert "--unknown-option" in stderr_lines[-1]
@@ -105,7 +169,7 @@ def test_ac23_argument_error_by_an_unknown_option(command: str, invoke: Invoke) 
 def test_ac23_internal_error_for_a_command_that_is_not_built_yet(
     command: str, invoke: Invoke
 ) -> None:
-    exit_code, stderr_lines = invoke(VALID_ARGUMENTS[command])
+    exit_code, stderr_lines = invoke(VALID_ARGUMENTS[command], CONFIGURED)
 
     assert (exit_code, stderr_lines[0]) == (1, "kind=internal_error")
     assert f"compute-jobs {command} is not implemented yet" in stderr_lines[1]
@@ -119,7 +183,7 @@ def test_ac23_internal_error_by_an_unexpected_exception_includes_its_traceback(
 
     monkeypatch.setattr(cli, "run_command", raise_unexpected_exception)
 
-    exit_code, stderr_lines = invoke(VALID_ARGUMENTS["launch"])
+    exit_code, stderr_lines = invoke(VALID_ARGUMENTS["launch"], CONFIGURED)
 
     assert (exit_code, stderr_lines[0]) == (1, "kind=internal_error")
     assert "RuntimeError('the SDK returned garbage')" in stderr_lines[1]
@@ -128,7 +192,7 @@ def test_ac23_internal_error_by_an_unexpected_exception_includes_its_traceback(
 
 def test_ac23_exit_0_writes_no_kind_line(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exit_info:
-        cli.main(["--help"])
+        cli.main(["--help"], CONFIGURED)
 
     assert exit_info.value.code == 0
     assert "kind=" not in capsys.readouterr().err
@@ -137,9 +201,10 @@ def test_ac23_exit_0_writes_no_kind_line(capsys: pytest.CaptureFixture[str]) -> 
 def test_the_compute_jobs_script_exits_with_the_contract_codes(tmp_path: Path) -> None:
     script = Path(sys.executable).parent / "compute-jobs"
 
-    def run_script(*argv: str) -> tuple[int, str]:
+    def run_script(*argv: str, environment: Mapping[str, str]) -> tuple[int, str]:
         process = subprocess.run(
             [str(script), *argv],
+            env=environment,
             capture_output=True,
             text=True,
             cwd=tmp_path,
@@ -147,8 +212,12 @@ def test_the_compute_jobs_script_exits_with_the_contract_codes(tmp_path: Path) -
         )
         return process.returncode, process.stderr.splitlines()[0]
 
-    assert run_script("launch") == (1, "kind=argument_error")
-    assert run_script("launch", "job.yaml") == (1, "kind=internal_error")
+    assert run_script("launch", "job.yaml", environment={}) == (
+        2,
+        "kind=not_configured",
+    )
+    assert run_script("launch", environment={}) == (1, "kind=argument_error")
+    assert run_script("observe", environment=CONFIGURED) == (1, "kind=internal_error")
 
 
 def test_every_failure_kind_matches_the_contracts_pattern_and_only_not_configured_exits_2() -> (
