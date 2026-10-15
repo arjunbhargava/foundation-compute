@@ -96,7 +96,7 @@ shows each run's name in its "Task" column, so the name also labels the spend
 report.
 
 - **Orchestrator**: `Orchestrator <MM/DD HH:MMZ>: <short descriptor>`, for
-  example `Orchestrator 10/15 00:21Z: foundation queue`.
+  example `Orchestrator 10/15 00:21Z: compute queue`.
 - **Worker**: `Worker <MM/DD HH:MMZ>: <short descriptor>`, for example
   `Worker 10/15 00:18Z: document agent names`. The descriptor is a few
   plain words saying what the worker does. It is not the task ID, which stays

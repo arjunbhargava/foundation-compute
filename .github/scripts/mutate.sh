@@ -247,7 +247,7 @@ mutate_typescript() {
 # its workflow, or stryker.config.json, which only mutation testing reads,
 # counts as a change to every package's tests, so that the PR making it runs
 # every step here in CI. In a git pathspec, * also matches /,
-# so src/*.py includes src/foundation/quadrature.py.
+# so src/*.py includes src/foundation_compute/__init__.py.
 files_to_mutate() {
   local tests=$1
   shift

@@ -25,7 +25,7 @@ list_start=$'(docs/auto-mode.md):\n'
 main() {
   make_fake_gh
   expect_result passes_when_no_changed_path_is_owned \
-    '[[{"filename": "docs/linear.md"}, {"filename": "docs/AGENTS.md"}, {"filename": "AGENTS.md.jinja"}, {"filename": "LICENSE"}]]' \
+    '[[{"filename": "docs/linear.md"}, {"filename": "docs/AGENTS.md"}, {"filename": "README.md"}, {"filename": "LICENSE"}]]' \
     0 "PR #7 changes no path in .github/CODEOWNERS."
   expect_result passes_when_the_pr_changes_no_file '[[]]' 0 "PR #7 changes no path in .github/CODEOWNERS."
   expect_result fails_listing_only_the_owned_paths \

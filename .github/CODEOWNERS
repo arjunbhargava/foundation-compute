@@ -5,7 +5,6 @@
 /mise.toml               @arjunbhargava
 /.config/mise/           @arjunbhargava
 /AGENTS.md               @arjunbhargava
-/AGENTS.md.jinja         @arjunbhargava
 /deny.toml               @arjunbhargava
 /docs/architecture.md    @arjunbhargava
 /.dependency-cruiser.cjs @arjunbhargava

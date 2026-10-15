@@ -39,8 +39,8 @@ if (repository_root / "Cargo.toml").is_file():
 # C and C++: docs/build.sh runs Doxygen, whose XML Breathe reads.
 if (repository_root / "CMakeLists.txt").is_file():
     extensions.append("breathe")
-    breathe_projects = {"foundation": "_generated/doxygen"}
-    breathe_default_project = "foundation"
+    breathe_projects = {"foundation-compute": "_generated/doxygen"}
+    breathe_default_project = "foundation-compute"
 
 nitpicky = True
 myst_heading_anchors = 3

@@ -17,7 +17,7 @@ these conventions rely on (task T17 in the plan in the [template repository](htt
   PR. The parent stays open until its sub-issues are done.
 - Each Linear project carries a label from the `repo` label group, named
   after its repository as `owner/name`, for example
-  `arjunbhargava/foundation`. Cursor takes an issue's repository from the
+  `arjunbhargava/foundation-compute`. Cursor takes an issue's repository from the
   first of: `[repo=owner/name]` in the issue text, a `repo` label on the
   issue, a `repo` label on its project, or the default repository in the
   Cursor dashboard
