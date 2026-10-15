@@ -19,7 +19,7 @@ build-backend = "uv_build"
 # The root pyproject.toml's tool settings apply here, except these, which
 # .github/scripts/mutate.sh needs when it runs mutmut in this directory.
 [tool.pytest]
-addopts = ["-n", "auto", "--doctest-modules"]
+addopts = ["-n", "auto", "--dist", "loadgroup", "--doctest-modules"]
 testpaths = ["src", "tests"]
 strict = true
 filterwarnings = ["error"]
