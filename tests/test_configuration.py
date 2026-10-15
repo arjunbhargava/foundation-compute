@@ -40,7 +40,14 @@ def test_an_endpoint_that_points_at_this_machine_is_not_configured(
 
 
 @pytest.mark.parametrize(
-    "endpoint", ["http://jobs.example.org", "jobs.example.org", "https://", "ftp://x"]
+    "endpoint",
+    [
+        "http://jobs.example.org",
+        "jobs.example.org",
+        "https://",
+        "ftp://x",
+        "http://{staging}.example.org",
+    ],
 )
 def test_an_endpoint_that_is_not_an_https_url_is_not_configured(endpoint: str) -> None:
     with pytest.raises(CommandFailure, match="isn't an https:// URL"):
