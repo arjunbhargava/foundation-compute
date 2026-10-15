@@ -134,6 +134,27 @@ def test_launcher_changes_machines_only_in_this_account_and_region() -> None:
         assert resource.startswith("arn:aws:ec2:us-east-1:<account_id>:"), resource
 
 
+def test_launcher_changes_only_instances_skypilot_launched() -> None:
+    skypilot_launched = {"Null": {"aws:ResourceTag/ray-cluster-name": "false"}}
+    at_launch = {"StringEquals": {"ec2:CreateAction": "RunInstances"}}
+    instance_changes = {
+        "ec2:CreateTags",
+        "ec2:DeleteTags",
+        "ec2:StartInstances",
+        "ec2:StopInstances",
+        "ec2:TerminateInstances",
+    }
+
+    for s in load("launcher.json")["Statement"]:
+        changes = instance_changes & set(as_list(s["Action"]))
+        if not changes:
+            continue
+        if s.get("Condition") == at_launch:
+            assert changes == {"ec2:CreateTags"}, s["Sid"]
+        else:
+            assert s.get("Condition") == skypilot_launched, s["Sid"]
+
+
 def test_observer_user_only_reads_the_archive() -> None:
     assert allowed_grants(load("observer.json")) == {
         ("s3:GetBucketLocation", BUCKET),

@@ -21,7 +21,8 @@ in one region, with `compute-jobs-job`, which the admin policy forces as
 |---|---|
 | `RunInstancesFromPublicImages` | Launching from an AMI another account owns, such as SkyPilot's |
 | `RunInstancesInAccount` | The instance, its network interface, subnet, volume, and security group that a launch creates or uses |
-| `ManageInstances` | Tagging the job's machines, and stopping, restarting, and terminating them |
+| `TagAtLaunch` | Tagging a new instance and its volumes, only inside the `RunInstances` that creates them |
+| `ManageSkyPilotInstances` | Tagging, stopping, restarting, and terminating only instances tagged `ray-cluster-name`, so never the EKS node that runs the server. SkyPilot 0.14.0 tags every instance it launches with it and selects by it before each of these calls (`sky/provision/aws/instance.py`) |
 | `DescribeEc2` | Reading instances, images, subnets, and offerings; describe actions support no resource ARN |
 | `CreateSecurityGroups` | The security group SkyPilot creates for a cluster, and its SSH rule |
 | `CreateSpotServiceLinkedRole` | The service-linked role EC2 needs before the account's first spot request |
@@ -42,7 +43,7 @@ layout" in `docs/compute-jobs.md`), so a machine writes only its own files.
 | `ListArchive` | Listing the bucket, for checkpoints and `index/` |
 | `ReadArchive` | Reading any object: the uploaded working tree, checkpoints, and other jobs' results |
 | `WriteOwnMachine` | Writing under this machine's own `machines/${aws:userid}/` |
-| `WriteIndexMarkers` | Writing the empty marker `index/<job name>/<machine id>`; the job name can't be scoped, so a job could write another's marker |
+| `WriteIndexMarkers` | Writing the empty marker `index/<job name>/<machine id>`. The job name can't be scoped, so a job can write any `index/*` marker, including one under another job's name; markers aren't authoritative ("Progress" in `docs/compute-jobs.md`), and an authoritative `index/` from EC2 tags is deferred |
 | `WriteCheckpoints` | Writing and deleting checkpoints under `checkpoints/`; a job could overwrite another's, costing at most a restart |
 | `AuthenticateToEcr` | The registry login that every pull needs; it supports no resource ARN |
 | `PullJobImage` | Pulling the image from `compute-jobs/job`, and no other repository |

@@ -20,7 +20,19 @@
       ]
     },
     {
-      "Sid": "ManageInstances",
+      "Sid": "TagAtLaunch",
+      "Effect": "Allow",
+      "Action": "ec2:CreateTags",
+      "Resource": [
+        "arn:aws:ec2:us-east-1:<account_id>:instance/*",
+        "arn:aws:ec2:us-east-1:<account_id>:volume/*"
+      ],
+      "Condition": {
+        "StringEquals": { "ec2:CreateAction": "RunInstances" }
+      }
+    },
+    {
+      "Sid": "ManageSkyPilotInstances",
       "Effect": "Allow",
       "Action": [
         "ec2:CreateTags",
@@ -29,7 +41,10 @@
         "ec2:StopInstances",
         "ec2:TerminateInstances"
       ],
-      "Resource": "arn:aws:ec2:us-east-1:<account_id>:instance/*"
+      "Resource": "arn:aws:ec2:us-east-1:<account_id>:instance/*",
+      "Condition": {
+        "Null": { "aws:ResourceTag/ray-cluster-name": "false" }
+      }
     },
     {
       "Sid": "DescribeEc2",
