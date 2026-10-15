@@ -8,6 +8,9 @@ policy so far holds `limits.yaml`, the compute list, its validation, and the
 spending-ceiling check on its quotas. The client
 parses the four `compute-jobs` commands' arguments and reports each failure
 with a kind (`kinds.py`); the commands' bodies are not built yet. The
+library's `fanout` spreads a search job's evaluations over the job's Ray
+cluster, and checkpoints and resumes the search; Ray, its one external
+dependency, is the library's optional `fanout` extra. The
 library never imports the client, and the admin policy imports neither,
 which the import-linter contracts in `pyproject.toml` check. "Packages and
 files" in [the compute jobs plan](compute-jobs.md) says what each will

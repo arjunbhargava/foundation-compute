@@ -33,6 +33,8 @@ compute-jobs-admin-policy = { workspace = true }
 
 [dependency-groups]
 dev = [
+    # Ray, for compute_jobs.fanout's tests and type checks.
+    "compute-jobs[fanout]",
     "import-linter>=2.15",
     "mutmut>=3.7.0,<3.8",
     "pyright[nodejs]>=1.1.414",
@@ -95,8 +97,10 @@ forbidden_modules = ["compute_jobs_cli", "compute_jobs"]
 
 [tool.pytest]
 # -n auto runs tests in parallel, so a test that depends on shared state or on
-# another test's order fails early instead of intermittently later.
-addopts = ["-n", "auto", "--doctest-modules"]
+# another test's order fails early instead of intermittently later. loadgroup
+# runs the tests marked with one xdist_group on one worker, so that they share
+# a module-scoped fixture, such as test_fanout.py's Ray cluster.
+addopts = ["-n", "auto", "--dist", "loadgroup", "--doctest-modules"]
 # Test files need distinct names across the three tests/ directories, because
 # pytest imports each by its file name.
 testpaths = [
