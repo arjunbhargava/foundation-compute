@@ -230,7 +230,13 @@ def test_every_failure_kind_matches_the_contracts_pattern_and_only_not_configure
 
 
 def test_ac23_the_kinds_enum_matches_the_failure_kinds_table_in_the_plan() -> None:
-    plan = (Path(__file__).parent.parent / "docs" / "compute-jobs.md").read_text()
+    # mutmut runs this file from mutants/tests/, where docs/ is one level higher.
+    plan_path = next(
+        directory / "docs" / "compute-jobs.md"
+        for directory in Path(__file__).parents
+        if (directory / "docs" / "compute-jobs.md").exists()
+    )
+    plan = plan_path.read_text()
     section = plan.split("### Proposed v0.1: failure kinds")[1].split("\n### ")[0]
     rows = re.findall(
         r"^\| `([a-z][a-z0-9_]*)` \| (\d) \|", section, flags=re.MULTILINE
