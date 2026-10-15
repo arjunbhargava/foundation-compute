@@ -1,0 +1,7 @@
+# Sends only lib/ to the build, the one directory the Dockerfile copies.
+*
+!lib/
+**/__pycache__
+**/.pytest_cache
+**/.venv
+lib/mutants

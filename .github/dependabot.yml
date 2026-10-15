@@ -18,3 +18,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+  # The job image's base image and uv, pinned by digest in the Dockerfile.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
