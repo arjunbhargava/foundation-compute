@@ -1,0 +1,43 @@
+---
+description: Code documentation is always compiled from source.
+globs:
+alwaysApply: true
+---
+
+# Docs from source
+
+API reference is generated from docstrings and doc comments, never written by
+hand. `docs/build.sh` compiles every language into one site and fails on any
+undocumented public symbol or docs warning.
+
+A doc comment is written for someone calling the code who hasn't read its
+body:
+
+- **Summary line:** what it does, in the imperative mood.
+- **Parameters:** meaning, units, valid range, and what happens outside it.
+  Write `rate_hz: sample rate in Hz, > 0`, not `rate: the rate`.
+- **Return value and errors:** what is returned, what can be raised or
+  returned as an error, and when.
+- **Invariants and side effects:** state it mutates, I/O, thread safety, and
+  cost when it isn't obvious (for example, O(n²) in the history length).
+- **Example:** a short one that runs. Python doctests run under
+  `pytest --doctest-modules`, and Rust doc tests under `cargo test --doc`. In
+  languages without runnable examples, keep the example minimal and cover the
+  same behaviour in a test.
+
+Don't restate the signature or the types, and don't narrate the
+implementation. Private helpers need a comment only when a constraint is
+non-obvious.
+
+A PR that changes public code, doc comments, or the docs build runs
+`mise run docs`, which runs `docs/build.sh` with the pinned tools. It must
+exit 0, and the PR lists it under verification. Open
+`docs/_build/html/index.html`, or screenshot the pages the PR changed,
+including the architecture page in light and dark mode, and attach the
+screenshots to the PR. Never commit `docs/_build/` or `docs/_generated/`.
+
+The first code in a repo, and the first file in each new language, add that
+language to the build in the same PR. Read the `source-docs` skill before
+doing that, and before changing `docs/build.sh`, `docs/conf.py`, or a
+documentation gate. For a new language, also read the `add-language` skill,
+which covers its checks, CI job, and test command as well as its docs.

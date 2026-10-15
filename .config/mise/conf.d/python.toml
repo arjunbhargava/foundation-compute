@@ -1,0 +1,31 @@
+# Python's tasks, which mise loads along with mise.toml. uv is pinned there,
+# because the docs build and the C and C++ tools run it too.
+
+[tasks."setup:python"]
+description = "Install the Python dependencies that uv.lock pins"
+run = "uv sync --locked"
+
+[tasks."fmt:python"]
+description = "Format the Python code in place"
+run = "uv run ruff format"
+
+[tasks."lint:python"]
+description = "Check Python formatting, lint including docstrings, types, and module boundaries"
+run = [
+  "uv run ruff format --check",
+  "uv run ruff check",
+  "uv run pyright --warnings",
+  # Pyright skips dot directories, even files named on its command line, so
+  # .github/scripts/ is a project of its own, whose pyrightconfig.json takes
+  # the settings in pyproject.toml.
+  "uv run pyright --warnings --project .github/scripts",
+  "uv run lint-imports",
+]
+
+[tasks."test:python"]
+description = "Run the Python tests and docstring examples; arguments after -- go to pytest"
+run = "uv run pytest"
+
+[tasks."mutate:python"]
+description = "Mutation-test the changed Python code with mutmut; an argument after -- replaces origin/main as the base"
+run = ".github/scripts/mutate.sh python"

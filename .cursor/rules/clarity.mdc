@@ -1,0 +1,72 @@
+---
+description: Everything is written for maximum understanding by people.
+globs:
+alwaysApply: true
+---
+
+# Clarity
+
+Every change is judged by how easily a competent engineer new to the code can
+understand it. This covers code structure, layout, naming, comments, error
+messages, documentation, diagrams, visual design, colour, PR descriptions, and
+commit messages. When minimalism and clarity conflict, clarity wins.
+
+## Code
+
+- Names state what the thing means in the domain, not how it is stored
+  (`converged_solution`, not `arr2`, `data`, or `manager`), and include units
+  (`timeout_ms`). Booleans are predicates, functions are verbs, and values are
+  nouns. Name length grows with scope.
+- Spell words out, except abbreviations the reader already knows (`id`,
+  `GPU`). Define domain acronyms in the glossary.
+- One name per concept, used everywhere: code, docs, diagrams, logs, and UI.
+  Renaming a concept renames it everywhere in the same PR.
+- One responsibility per unit: a function's name describes all it does, and
+  if it needs "and", split the function. Put the public entry point first and
+  its helpers after, in the order they are called, so the file follows the
+  data flow.
+- Pass inputs as arguments and return results, with no hidden global state,
+  mutation of arguments, or action at a distance. Handle errors and edge cases
+  with early returns, so the normal case reads straight down. Prefer plain
+  constructs to clever ones, and use a language feature only when its meaning
+  is obvious to the reader.
+- Run the standard formatter; never format by hand. Put one idea on each
+  line, split a long condition into named values, and separate a function's
+  steps with blank lines. Put constants at the top of the file, with units and
+  their source.
+- Comments state what the code cannot: intent, constraints, invariants, units,
+  and why a simpler approach fails, never what the next line does. Docstrings
+  state the contract: inputs, outputs, errors, and side effects.
+- Error and log messages say what happened, include the offending value, and
+  say what to do next: `TRACKER_API_KEY is not set; add it to .env`, not
+  `config error`.
+
+## Writing
+
+This covers docs, docstrings, PR descriptions, commit messages, and replies.
+
+- Open with the claim: what this is and what the reader can do with it.
+  Define each term before using it. Explain why. Quantify, with units and
+  where the numbers came from, instead of writing "fast".
+- Use plain, complete sentences and ordinary words, with no slogans,
+  catchphrases, aphorisms, jokes, rhetorical questions, marketing adjectives,
+  or emoji.
+- Say each thing once. Don't shorten by dropping articles, chaining arrows, or
+  inventing abbreviations.
+
+## Review checklist
+
+Before finishing, reread the change as the new engineer described above:
+
+1. Can they say what each changed unit does from its name and signature alone?
+2. Can they follow the main path of each function without jumping files?
+3. Is each concept called the same thing everywhere?
+4. Does every comment say something the code cannot?
+5. Does every colour, shape, and line style have one meaning, shown in a
+   legend?
+6. Is any sentence a slogan or a restatement? Delete it.
+7. Is anything left that no reader needs? Delete it.
+
+Read the `clarity` skill before you create, split, or reorganise a module or
+file; write or edit a doc page, README, design doc, or ADR; or create or
+change a diagram, docs site, terminal output, user interface, or colours.

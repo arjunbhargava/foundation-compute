@@ -1,0 +1,43 @@
+# Secrets; .env.example lists the variable names.
+.env
+.env.*
+!.env.example
+
+# Docs build output
+docs/_build/
+docs/_generated/
+# sphinx-autoapi's pages, which it writes during the build and then deletes.
+docs/api/python/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.import_linter_cache/
+# mutmut's copy of the source with mutants in it, and its results.
+/mutants/
+# The scratch project that mutate.sh runs mutmut in for .github/scripts/*.py.
+/.mutants-scripts/
+
+# TypeScript
+node_modules/
+*.tsbuildinfo
+# StrykerJS's sandbox copies of packages/ with mutants in them, and its report.
+/.stryker-tmp/
+/reports/mutation/
+
+# Rust
+target/
+
+# C and C++
+build/
+CMakeUserPresets.json
+compile_commands.json
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/

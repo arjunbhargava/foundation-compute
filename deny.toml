@@ -1,0 +1,43 @@
+# Settings for cargo-deny, which `mise run lint:rust` runs as
+# `cargo deny check advisories bans licenses sources`. It fails on a crate
+# that has a known vulnerability in the RustSec advisory database, is banned
+# below, or has a licence or source not allowed below. Other settings keep
+# cargo-deny's defaults:
+# https://embarkstudios.github.io/cargo-deny/checks/cfg.html
+
+[licenses]
+# The licences that a shipped dependency in any language may have without
+# asking a person first (.cursor/rules/dependencies.mdc). This is the only copy
+# of the list. Never add to it to make a dependency pass.
+allow = [
+  "Apache-2.0",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "BSL-1.0",
+  "Unicode-3.0",
+  "PSF-2.0",
+  "0BSD",
+  "CC0-1.0",
+  "BlueOak-1.0.0",
+]
+# The rule covers development dependencies, which cargo-deny skips by default.
+include-dev = true
+# The list serves every language, so most entries match no Rust crate.
+unused-allowed-license = "allow"
+
+[bans]
+# Module boundaries between the workspace's crates. Cargo already limits each
+# crate to the crates it lists, and library code to its non-dev dependencies.
+# To let only certain crates depend on a crate, list them as its wrappers:
+#   deny = [{ crate = "storage", wrappers = ["app"] }]
+# An empty wrappers list bans the crate outright.
+
+[sources]
+# Crates come only from crates.io, whose releases can't change once published
+# and are what the advisory database tracks. A person adds any other registry
+# to allow-registry, or git repository to allow-git.
+unknown-registry = "deny"
+unknown-git = "deny"

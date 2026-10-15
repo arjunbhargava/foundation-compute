@@ -1,0 +1,55 @@
+# CodeQL code scanning. Runs on main as well as on PRs, because code scanning
+# reports a PR's new alerts by comparing it with the latest analysis of main.
+name: CodeQL
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  languages:
+    # CodeQL fails on a language with no code, so analyze's matrix gets only
+    # the languages whose manifest exists, and actions, for the workflows
+    # every project has.
+    runs-on: ubuntu-latest
+    outputs:
+      languages: ${{ steps.list.outputs.languages }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: list
+        run: |
+          languages='"actions"'
+          if [[ -f pyproject.toml ]]; then languages+=', "python"'; fi
+          if [[ -f Cargo.toml ]]; then languages+=', "rust"'; fi
+          if [[ -f package.json ]]; then languages+=', "javascript-typescript"'; fi
+          if [[ -f CMakeLists.txt ]]; then languages+=', "c-cpp"'; fi
+          echo "languages=[$languages]" >> "$GITHUB_OUTPUT"
+
+  analyze:
+    needs: languages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload results to code scanning
+      actions: read # read workflow run details; needed only in private repositories
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(needs.languages.outputs.languages) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          category: /language:${{ matrix.language }}

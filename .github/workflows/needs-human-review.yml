@@ -1,0 +1,39 @@
+# Fails a PR that has the needs-human-review label, by running
+# .github/scripts/needs_human_review.sh, so that, once the auto-mode ruleset
+# requires this check, only the owner's bypass merges it, even after the
+# approval workflow has approved it (docs/auto-mode.md). pull_request_target
+# runs the base branch's copy of this file, with GITHUB_SHA set to that
+# branch's latest commit, which the job checks out, so a PR can't change the
+# check that judges it. No code from the PR runs.
+name: Needs human review
+
+on:
+  # zizmor flags every pull_request_target, because checking out a PR with it
+  # runs the PR's code with the job's token.
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions: {}
+
+defaults:
+  run:
+    # Naming bash explicitly adds -o pipefail, which the default shell lacks.
+    shell: bash
+
+jobs:
+  # The job has no if: GitHub counts a skipped job as a passing check.
+  needs-human-review:
+    # One run at a time per PR, in event order, so the check's latest result
+    # matches the label's latest state when it is added and removed quickly.
+    concurrency:
+      group: needs-human-review-${{ github.event.pull_request.number }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # check out the base branch
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - env:
+          LABEL_NAMES: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: .github/scripts/needs_human_review.sh "$LABEL_NAMES"

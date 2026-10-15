@@ -1,0 +1,362 @@
+# Checks every pull request, and every merge group once the merge queue is on.
+# The rulesets require only the ci-ok job, so adding a job never needs a
+# ruleset change.
+#
+# To add a language: add an output to the changes job that calls
+# language_changed with the language's manifest first, add a job that needs
+# changes and runs only when that output is 'true', and add the job to
+# ci-ok's needs; `mise run lint:language-listings` fails while one is
+# missing. Jobs run tools through the shared `mise run` commands.
+#
+# Each job sets MISE_ENABLE_TOOLS to the tools that mise.toml and
+# .config/mise/conf.d/ pin and its commands run, and .cursor/install.sh
+# installs only those. mise ignores a tool missing
+# from the list, so its command would run the runner's own version. Each job
+# therefore runs .github/scripts/block_unlisted_tools.sh next, which makes
+# a command for an unlisted tool fail with an error naming the tool. Add a new
+# tool to every job that runs it, including docs, which runs every language's
+# docs tools.
+name: CI
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new commit on a PR cancels the PR's older run. Merge-group runs have no
+  # PR number, so each gets its own group and none cancels another.
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # Naming bash explicitly adds -o pipefail, which the default shell lacks.
+    shell: bash
+
+jobs:
+  changes:
+    # Each output is 'true' when the change touches that job's files, or
+    # ci.yml, mise.toml, or the block_unlisted_tools script and its test,
+    # which define or affect every job. A failed diff also counts
+    # as a change, so an error runs jobs rather than skipping them.
+    # A language's output is 'false' when its manifest is missing, so a
+    # project without the language skips its job.
+    # install-script's files include every language's mise file, because
+    # that job is the only one that installs the tools on Linux arm64 and
+    # macOS.
+    runs-on: ubuntu-latest
+    outputs:
+      install-script: ${{ steps.diff.outputs.install-script }}
+      docs: ${{ steps.diff.outputs.docs }}
+      python: ${{ steps.diff.outputs.python }}
+      rust: ${{ steps.diff.outputs.rust }}
+      typescript: ${{ steps.diff.outputs.typescript }}
+      cpp: ${{ steps.diff.outputs.cpp }}
+      rulesets: ${{ steps.diff.outputs.rulesets }}
+      workflows: ${{ steps.diff.outputs.workflows }}
+      language-listings: ${{ steps.diff.outputs.language-listings }}
+      auto-merge-script: ${{ steps.diff.outputs.auto-merge-script }}
+      approve-agent-prs-script: ${{ steps.diff.outputs.approve-agent-prs-script }}
+      owned-paths-script: ${{ steps.diff.outputs.owned-paths-script }}
+      needs-human-review-script: ${{ steps.diff.outputs.needs-human-review-script }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          base=${MERGE_GROUP_BASE_SHA:-origin/$GITHUB_BASE_REF}
+          changed() {
+            if git diff --quiet "$base...HEAD" -- "$@" .github/workflows/ci.yml mise.toml .github/scripts/block_unlisted_tools.sh .github/scripts/block_unlisted_tools_test.sh; then
+              echo false
+            else
+              echo true
+            fi
+          }
+          # The first argument is the language's manifest, which is also one
+          # of its files.
+          language_changed() {
+            if [[ -f $1 ]]; then
+              changed "$@"
+            else
+              echo false
+            fi
+          }
+          {
+            echo "install-script=$(changed .cursor/install.sh .cursor/environment.json .config/mise/conf.d/)"
+            # The site includes README.md and AGENTS.md as pages.
+            echo "docs=$(changed docs/ README.md AGENTS.md)"
+            echo "python=$(language_changed pyproject.toml '*.py' uv.lock .python-version .config/mise/conf.d/python.toml)"
+            echo "rust=$(language_changed Cargo.toml crates/ Cargo.lock rust-toolchain.toml deny.toml .config/mise/conf.d/rust.toml)"
+            echo "typescript=$(language_changed package.json packages/ pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json biome.json .dependency-cruiser.cjs .config/mise/conf.d/typescript.toml)"
+            echo "cpp=$(language_changed CMakeLists.txt cpp/ CMakePresets.json .clang-format .clang-tidy Doxyfile .config/mise/conf.d/cpp.toml)"
+            echo "rulesets=$(changed .github/rulesets/)"
+            echo "workflows=$(changed .github/workflows/ .github/scripts/lint_workflows.sh .github/scripts/lint_workflows_test.sh)"
+            # The files the check reads, which are those that list the languages.
+            echo "language-listings=$(changed .github/scripts/language_listings.sh .github/scripts/language_listings_test.sh .config/mise/conf.d/ .github/workflows/ docs/build.sh docs/api/ AGENTS.md README.md copier.yml)"
+            # The script runs owned_paths.sh, which reads .github/CODEOWNERS.
+            echo "auto-merge-script=$(changed .github/scripts/auto_merge.sh .github/scripts/auto_merge_test.sh .github/scripts/owned_paths.sh .github/CODEOWNERS)"
+            # The script reads the review rulesets' names from their files.
+            echo "approve-agent-prs-script=$(changed .github/scripts/approve_agent_prs.sh .github/scripts/approve_agent_prs_test.sh .github/rulesets/main-review.json .github/rulesets/main-review-auto.json)"
+            echo "owned-paths-script=$(changed .github/scripts/owned_paths.sh .github/scripts/owned_paths_test.sh)"
+            echo "needs-human-review-script=$(changed .github/scripts/needs_human_review.sh .github/scripts/needs_human_review_test.sh)"
+          } >> "$GITHUB_OUTPUT"
+
+  install-script:
+    # Sets up a fresh machine of each kind people use, the way a person does,
+    # and one the way a cloud agent does, with the install command in
+    # .cursor/environment.json. Then runs every check, then reruns the
+    # script, which must find mise at that caller's mise-path and download
+    # nothing. /bin/bash is used because a fresh Mac's is bash 3.2. It sets
+    # no MISE_ENABLE_TOOLS, so it installs every tool, as people do.
+    needs: changes
+    if: needs.changes.outputs.install-script == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, caller: person, mise-path: $HOME/.local/bin/mise }
+          - { runner: ubuntu-24.04-arm, caller: person, mise-path: $HOME/.local/bin/mise }
+          - { runner: macos-latest, caller: person, mise-path: $HOME/.local/bin/mise }
+          - { runner: ubuntu-latest, caller: cloud agent, mise-path: /usr/local/bin/mise }
+    name: install-script (${{ matrix.runner }}, ${{ matrix.caller }})
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: matrix.caller == 'person'
+        run: /bin/bash .cursor/install.sh
+      - if: matrix.caller == 'cloud agent'
+        run: sh -c "$(jq -r .install .cursor/environment.json)"
+      - run: mise run check
+      - run: |
+          /bin/bash .cursor/install.sh | tee rerun.log
+          grep -qF "already installed at ${{ matrix.mise-path }}; nothing to download" rerun.log
+
+  docs:
+    # The docs are built from every language's source, so this job runs when
+    # any output of the changes job is 'true'.
+    needs: changes
+    if: contains(toJSON(needs.changes.outputs), 'true')
+    runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: uv,rust,node,pnpm,conda:doxygen
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: bash .github/scripts/block_unlisted_tools.sh
+      - run: mise run setup
+      - run: mise run docs
+      - run: mise run test:docs
+
+  python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: uv
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: bash .github/scripts/block_unlisted_tools.sh
+      - run: mise run setup:python
+      - run: mise run lint:python
+      - run: mise run test:python
+
+  rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: rust,cargo-deny
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: bash .github/scripts/block_unlisted_tools.sh
+      - run: mise run setup:rust
+      - run: mise run lint:rust
+      - run: mise run test:rust
+
+  typescript:
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
+    runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: node,pnpm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: bash .github/scripts/block_unlisted_tools.sh
+      - run: mise run setup:typescript
+      - run: mise run lint:typescript
+      - run: mise run test:typescript
+
+  cpp:
+    # test:cpp builds the tests with AddressSanitizer and
+    # UndefinedBehaviorSanitizer, so this job also catches memory errors and
+    # undefined behaviour at run time.
+    needs: changes
+    if: needs.changes.outputs.cpp == 'true'
+    runs-on: ubuntu-latest
+    env:
+      # mise installs the pipx: tools with uv.
+      MISE_ENABLE_TOOLS: uv,cmake,ninja,pipx:clang-format,pipx:clang-tidy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: bash .github/scripts/block_unlisted_tools.sh
+      - run: mise run lint:cpp
+      - run: mise run test:cpp
+
+  rulesets:
+    needs: changes
+    if: needs.changes.outputs.rulesets == 'true'
+    runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: jq
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: bash .github/scripts/block_unlisted_tools.sh
+      - run: mise run lint:rulesets
+      - run: mise run test:rulesets
+
+  workflows:
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: actionlint,shellcheck,zizmor
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: bash .github/scripts/block_unlisted_tools.sh
+      - run: mise run lint:workflows
+      - run: mise run test:lint-workflows-script
+
+  language-listings:
+    needs: changes
+    if: needs.changes.outputs.language-listings == 'true'
+    runs-on: ubuntu-latest
+    env:
+      # The check and its test run no tool that mise pins. An empty list
+      # would make install.sh install every tool, so this one names a tool
+      # that doesn't exist.
+      MISE_ENABLE_TOOLS: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: bash .github/scripts/block_unlisted_tools.sh
+      - run: mise run lint:language-listings
+      - run: mise run test:language-listings-script
+
+  auto-merge-script:
+    needs: changes
+    if: needs.changes.outputs.auto-merge-script == 'true'
+    runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: jq
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: bash .github/scripts/block_unlisted_tools.sh
+      - run: mise run test:auto-merge-script
+
+  approve-agent-prs-script:
+    needs: changes
+    if: needs.changes.outputs.approve-agent-prs-script == 'true'
+    runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: jq
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: bash .github/scripts/block_unlisted_tools.sh
+      - run: mise run test:approve-agent-prs-script
+
+  owned-paths-script:
+    needs: changes
+    if: needs.changes.outputs.owned-paths-script == 'true'
+    runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: jq
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: bash .github/scripts/block_unlisted_tools.sh
+      - run: mise run test:owned-paths-script
+
+  needs-human-review-script:
+    needs: changes
+    if: needs.changes.outputs.needs-human-review-script == 'true'
+    runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: jq
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: bash .github/scripts/block_unlisted_tools.sh
+      - run: mise run test:needs-human-review-script
+
+  ci-ok:
+    # The only required CI check. A skipped job means its files didn't
+    # change or its language's manifest is missing, and counts as passing.
+    # always(), not !cancelled(): GitHub treats a skipped required check as
+    # passing, so this job must still run, and fail, when the run is
+    # cancelled.
+    needs:
+      - changes
+      - install-script
+      - docs
+      - python
+      - rust
+      - typescript
+      - cpp
+      - rulesets
+      - workflows
+      - language-listings
+      - auto-merge-script
+      - approve-agent-prs-script
+      - owned-paths-script
+      - needs-human-review-script
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "::error::A job that ci-ok needs failed or was cancelled. Results by job:"
+          echo "$NEEDS"
+          exit 1

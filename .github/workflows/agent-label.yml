@@ -1,0 +1,44 @@
+# Labels a PR "agent" when any of its commits is authored by a Cursor agent,
+# so agent PRs can be counted against the open-PR limit (D9 in
+# docs/template-plan.md). Agent PRs are opened from the owner's account, so
+# the PR's author doesn't show which PRs came from an agent.
+# approve-agent-prs.yml runs when the workflow with this name finishes, so a
+# rename must be made there too.
+name: Agent label
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  agent-label:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write # create the label
+      # List the PR's commits and add the label. Adding a label to a PR goes
+      # through the issues API, but the token needs pull-requests: write for it.
+      pull-requests: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          agent_email=cursoragent@cursor.com
+          author_emails=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" --jq '.[].commit.author.email')
+          if ! grep -qxF "$agent_email" <<< "$author_emails"; then
+            echo "No commit is authored by $agent_email."
+            exit 0
+          fi
+
+          if ! gh api "repos/$GITHUB_REPOSITORY/labels/agent" --silent 2> /dev/null; then
+            gh api "repos/$GITHUB_REPOSITORY/labels" --silent \
+              -f name=agent -f color=5319e7 -f description="Has commits by a Cursor agent"
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --silent -f 'labels[]=agent'
+          echo "Labelled the PR agent."

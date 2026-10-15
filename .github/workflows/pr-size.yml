@@ -1,0 +1,61 @@
+# Fails a PR that changes more than 500 lines, the limit in
+# .cursor/rules/reviewable-prs.mdc, unless its description starts with
+# "Oversize:". Files marked linguist-generated in .gitattributes, such as
+# lockfiles, don't count.
+name: PR size
+
+on:
+  pull_request:
+    # edited reruns the check when the description changes.
+    types: [opened, synchronize, reopened, edited]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-size-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # Naming bash explicitly adds -o pipefail, which the default shell lacks.
+    shell: bash
+
+jobs:
+  pr-size:
+    runs-on: ubuntu-latest
+    steps:
+      # A merge group has no description, and each PR in it passed this check
+      # already, so on merge_group every step is skipped and the job passes.
+      - if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          limit=500
+          # numstat prints "-" for binary files, which awk counts as 0 lines.
+          changed_lines=$(
+            git diff --numstat "origin/$GITHUB_BASE_REF...HEAD" -- . \
+                ':(exclude,attr:linguist-generated)' \
+                ':(exclude,attr:linguist-generated=true)' |
+              awk '{ total += $1 + $2 } END { print total + 0 }'
+          )
+          echo "$changed_lines changed lines, not counting files marked linguist-generated."
+          if (( changed_lines <= limit )); then
+            exit 0
+          fi
+
+          # Leading whitespace and HTML comments are skipped, because Cursor
+          # puts a comment at the top of agent PR descriptions. The atomic
+          # group (?>...) stops a match from spanning text between comments.
+          if printf '%s' "$PR_BODY" | grep -Pzq '\A(?>\s+|<!--[\s\S]*?-->)*Oversize:'; then
+            echo "More than $limit lines, allowed because the description starts with Oversize:."
+            exit 0
+          fi
+          echo "::error::This PR changes $changed_lines lines, more than the limit of $limit. Split it into stacked PRs as .cursor/skills/large-changes/SKILL.md describes. If it fits an oversize category listed there, start the description with 'Oversize: <category> — <why it can't be split>'."
+          exit 1

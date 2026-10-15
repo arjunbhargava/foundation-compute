@@ -1,0 +1,25 @@
+---
+description: Agent compute spend limits, and when to ask a person first.
+globs:
+alwaysApply: true
+---
+
+# Compute cost
+
+Compute jobs that agents launch on machines other than their own (cloud VMs,
+GPUs, clusters) share a cap of $10,000 a day in total (decision D8 in
+`docs/template-plan.md`). There is no per-job limit. Each task states its
+compute budget in US dollars, in the "Compute budget" section of its Linear
+issue; a task that states none has a budget of $0.
+
+Estimate a job's cost (machines × hours × price per machine-hour) before
+launching it, and stop to ask a person, giving the estimate, if:
+
+- the `compute-jobs` skill doesn't exist yet, because until then nothing
+  enforces the daily cap;
+- the job would take the task's total compute spend, including failed runs,
+  over its budget; or
+- you can't estimate its cost.
+
+Ask in the PR, and launch only after a person approves there. Never work
+around a provider budget limit, for example by switching account or provider.

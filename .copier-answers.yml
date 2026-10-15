@@ -1,0 +1,8 @@
+# The template and answers this project was created from, which
+# `copier update` reads. Copier rewrites this file; don't edit it.
+_commit: 3690c82
+_src_path: gh:arjunbhargava/foundation
+cpp: false
+python: true
+rust: false
+typescript: false

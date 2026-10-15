@@ -1,0 +1,59 @@
+# Mutation-tests the code each pull request changes, with `mise run
+# mutate:<language>`, and lists in the job summary each surviving mutant: a
+# small deliberate bug, such as `<` replaced by `<=`, that every test still
+# passes. For now it only reports (T14 in docs/template-plan.md): the rulesets
+# don't require it and ci-ok doesn't need it, so surviving mutants never block
+# merging. It fails only when a mutation tool fails.
+name: Mutation testing
+
+on:
+  pull_request:
+    # The code it mutates, the tests that check that code, its own
+    # definition, and the tasks and tool pins in mise's files.
+    paths:
+      - src/**
+      - tests/**
+      - crates/**
+      - packages/**
+      - .github/scripts/*.py
+      - .github/scripts/mutate.sh
+      - .github/scripts/mutate_test.sh
+      - .github/workflows/mutation.yml
+      - stryker.config.json
+      - mise.toml
+      - .config/mise/conf.d/*.toml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # Naming bash explicitly adds -o pipefail, which the default shell lacks.
+    shell: bash
+
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The base branch's history too, to find where the PR branched off.
+          fetch-depth: 0
+          persist-credentials: false
+      - id: install
+        run: bash .cursor/install.sh
+      - run: mise run test:mutate-script
+      # Each language runs whenever the install succeeded, so that a failure
+      # of the script test or of another language's tool doesn't hide its
+      # results. It is skipped when its manifest is missing: a project
+      # without the language has no mutate task for it.
+      - if: ${{ !cancelled() && steps.install.outcome == 'success' && hashFiles('pyproject.toml') != '' }}
+        run: mise run mutate:python -- "origin/$GITHUB_BASE_REF"
+      - if: ${{ !cancelled() && steps.install.outcome == 'success' && hashFiles('Cargo.toml') != '' }}
+        run: mise run mutate:rust -- "origin/$GITHUB_BASE_REF"
+      - if: ${{ !cancelled() && steps.install.outcome == 'success' && hashFiles('package.json') != '' }}
+        run: mise run mutate:typescript -- "origin/$GITHUB_BASE_REF"

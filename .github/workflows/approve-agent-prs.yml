@@ -1,0 +1,58 @@
+# Approves each agent PR while auto mode is on, by running
+# .github/scripts/approve_agent_prs.sh, so that it has the one approval the
+# auto-mode ruleset requires. docs/auto-mode.md says how this fits with
+# code-owner review and the auto-merge workflow.
+#
+# Both triggers run main's copy of this file, with GITHUB_SHA set to main's
+# latest commit, and the job checks out that commit, so no code from a PR runs
+# with this job's write token.
+name: Approve agent PRs
+
+on:
+  # agent-label.yml adds the label with GITHUB_TOKEN, which starts no
+  # workflow, after the opened event, so this runs when that workflow
+  # finishes: after each push, and when a PR is opened or reopened. zizmor
+  # flags both triggers, because checking out a PR with either runs the PR's
+  # code with a write token.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
+    workflows: [Agent label]
+    types: [completed]
+  # A person adding the agent label, or removing needs-human-review.
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
+    types: [labeled, unlabeled]
+
+permissions: {}
+
+defaults:
+  run:
+    # Naming bash explicitly adds -o pipefail, which the default shell lacks.
+    shell: bash
+
+jobs:
+  approve:
+    # Skips PRs from forks, so a fork's PR runs no step with the write token,
+    # and other label changes.
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.head_repository.full_name == github.repository)
+      || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository
+          && ((github.event.action == 'labeled' && github.event.label.name == 'agent')
+              || (github.event.action == 'unlabeled' && github.event.label.name == 'needs-human-review')))
+    # One run at a time per PR branch, so each run sees the previous run's
+    # approval and doesn't approve again.
+    concurrency:
+      group: approve-agent-prs-${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # check out main
+      pull-requests: write # approve PRs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          # A workflow run lists the open PRs whose head is its branch.
+          PR_NUMBERS: ${{ github.event.pull_request.number || join(github.event.workflow_run.pull_requests.*.number, ' ') }}
+        run: |
+          read -ra pr_numbers <<< "$PR_NUMBERS"
+          .github/scripts/approve_agent_prs.sh "${pr_numbers[@]}"
