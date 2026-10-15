@@ -853,7 +853,9 @@ repository, write only `machines/${aws:userid}/*`, `index/*`, and
 can't alter another's archive, but could overwrite another's checkpoints,
 which costs at most a restart. The read-only key exposes job logs and
 outputs, nothing more. The image push role exists only for the release
-environment's workflow, and can push only to `compute-jobs/job`.
+environment's workflow, and can push to and read only `compute-jobs/job`:
+the workflow pulls the pushed image to smoke-test it, and copies its
+manifest to add the release tag.
 
 ## Setup for the owner
 

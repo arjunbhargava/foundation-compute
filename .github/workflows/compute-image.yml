@@ -110,8 +110,24 @@ jobs:
           subject-name: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
       - if: steps.gate.outputs.configured == 'true'
+        # Adds the tag to the attested manifest without rewriting it.
+        # `docker buildx imagetools create` wraps the manifest in a new index,
+        # which has a different digest, so the policy would find no
+        # attestation for the digest the tag names.
         name: Tag the attested image with the release tag
         env:
-          REPOSITORY: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_NAME }}
           DIGEST: ${{ steps.push.outputs.digest }}
-        run: docker buildx imagetools create --tag "$REPOSITORY:$GITHUB_REF_NAME" "$REPOSITORY@$DIGEST"
+        run: |
+          manifest=$(aws ecr batch-get-image \
+            --repository-name "$ECR_REPOSITORY_NAME" \
+            --image-ids "imageDigest=$DIGEST" \
+            --query 'images[0].imageManifest' --output text)
+          tagged_digest=$(aws ecr put-image \
+            --repository-name "$ECR_REPOSITORY_NAME" \
+            --image-tag "$GITHUB_REF_NAME" \
+            --image-manifest "$manifest" \
+            --query 'image.imageId.imageDigest' --output text)
+          if [[ $tagged_digest != "$DIGEST" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME names $tagged_digest, not the attested $DIGEST. Delete the tag in ECR, then rerun this workflow."
+            exit 1
+          fi
