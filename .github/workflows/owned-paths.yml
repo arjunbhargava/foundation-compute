@@ -1,0 +1,37 @@
+# Fails a PR that changes a path in .github/CODEOWNERS, by running
+# .github/scripts/owned_paths.sh. Only the auto-mode ruleset requires this
+# check (docs/auto-mode.md). pull_request_target runs the base branch's copy
+# of this file, with GITHUB_SHA set to that branch's latest commit, which the
+# job checks out, so a PR can't change the check that judges it. No code from
+# the PR runs.
+name: Owned paths
+
+on:
+  # edited reruns the check when the PR's base branch changes. zizmor flags
+  # every pull_request_target, because checking out a PR with it runs the
+  # PR's code with the job's token.
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
+    types: [opened, synchronize, reopened, edited]
+
+permissions: {}
+
+defaults:
+  run:
+    # Naming bash explicitly adds -o pipefail, which the default shell lacks.
+    shell: bash
+
+jobs:
+  # The job has no if: GitHub counts a skipped job as a passing check.
+  owned-paths:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # check out the base branch
+      pull-requests: read # list the PR's files
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: .github/scripts/owned_paths.sh "$PR_NUMBER"

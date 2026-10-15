@@ -1,0 +1,57 @@
+---
+description: Adding a dependency, and resolving a lockfile merge conflict.
+globs: **/pyproject.toml, **/uv.lock, **/pixi.toml, **/pixi.lock, **/package.json, **/pnpm-lock.yaml, **/Cargo.toml, **/Cargo.lock, **/deny.toml, **/CMakeLists.txt, **/vcpkg.json
+alwaysApply: false
+---
+
+# Dependencies
+
+A dependency is new when a manifest gains it, including development and build
+dependencies. A PR that adds one includes all of these:
+
+1. **A reason.** Under "What and why", one line per new dependency
+   giving its name, its licence, and why it's needed, for example
+   `h5py (BSD-3-Clause): reads HDF5 checkpoint files, which the standard library can't`.
+   If the approved plan doesn't name it, end the line with "(not in the plan)"
+   and carry on; it doesn't stop the work.
+2. **A committed lockfile.** Add the dependency with the package manager
+   (`uv add`, `pnpm add`, `cargo add`), and commit the lockfile it writes in
+   the same commit as the manifest. C and C++ have no lockfile, so pin an
+   exact version instead: a vcpkg `builtin-baseline`, or a FetchContent
+   `GIT_TAG` set to a full commit hash, or a `URL` with `URL_HASH`.
+3. **An allowed licence.** Which licences are allowed depends on whether
+   anything from the dependency ships:
+   - **Shipped:** its code is copied into, linked into, or distributed with
+     what the project ships, including runtime libraries. Its licence must be
+     on the allow-list in `deny.toml` (`allow` under `[licenses]`), which
+     covers every language.
+   - **Development-only:** it runs only on developer and CI machines, and
+     nothing from it is copied into, linked into, or shipped with the
+     project. Formatters, linters, test runners, docs generators, and their
+     own dependencies are examples. Its licence may be any OSI-approved
+     licence, public domain (including CC0-1.0), a font licence such as
+     OFL-1.1, or a Creative Commons licence on data, such as caniuse-lite's
+     CC-BY-4.0 browser-support data. Under "What and why", list each licence
+     off the allow-list, including a transitive dependency's, with the
+     dependency that brings it in.
+
+   Stop and ask under "Needs a person" before adding a shipped dependency whose
+   licence isn't on the allow-list, or any dependency under AGPL, a
+   source-available or non-commercial licence such as SSPL or BUSL, a custom
+   licence, or no licence.
+
+   | Language | Licence check |
+   |---|---|
+   | Rust | `mise run lint:rust` runs `cargo deny check licenses`, which fails on any crate whose licence isn't on the allow-list. It checks development dependencies too, so Rust holds them to the shipped list. |
+   | Python, TypeScript, C and C++ | None exists. Check the licence by hand. |
+
+   Never add to the allow-list to make a dependency pass.
+
+Never edit a lockfile by hand. On a lockfile merge conflict, first check out
+the base branch's lockfile, for example `git checkout origin/main -- uv.lock`,
+because uv and Cargo refuse to read one with conflict markers. Then resolve
+the manifest and rerun the lock command (`uv lock`, `pnpm install`, or
+`cargo update --workspace`). This keeps the base branch's versions and adds
+only what the merged manifest needs. Deleting the lockfile and locking from
+scratch would instead move every dependency to the newest version its
+manifest allows.

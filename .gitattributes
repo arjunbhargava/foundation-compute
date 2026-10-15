@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+# Generated files: GitHub collapses these in diffs.
+uv.lock linguist-generated
+pixi.lock linguist-generated
+pnpm-lock.yaml linguist-generated
+Cargo.lock linguist-generated
+docs/diagrams/*.svg linguist-generated

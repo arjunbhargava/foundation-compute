@@ -1,0 +1,19 @@
+# Opens PRs that update pinned dependencies, including the commit each action
+# is pinned to. Each language task adds an entry for its package ecosystem.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Waits a week after a release before proposing it, so a compromised
+    # release is more likely to be caught first. Security updates don't wait.
+    cooldown:
+      default-days: 7
+  # The docs build's tools in docs/, and the Python package's tools.
+  - package-ecosystem: uv
+    directories: [/, /docs]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

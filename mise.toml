@@ -1,0 +1,129 @@
+# Pinned tool versions and the shared commands that people, agents, and CI run,
+# for example `mise run check`. Each language's tools and tasks are in a file
+# of its own, .config/mise/conf.d/<language>.toml, which mise loads along with
+# this one. That file pins the tools only the language uses, and defines its
+# `fmt:<language>`, `lint:<language>`, `test:<language>`, and, if it has
+# dependencies to install, `setup:<language>` tasks, which `fmt`, `lint`,
+# `test`, and `setup` pick up. This file pins the tools that more than one
+# language, or the docs build, runs. Python packages, including ruff and
+# pyright, are pinned in uv.lock rather than in mise's files, TypeScript
+# packages, including tsc, Biome, and vitest, in pnpm-lock.yaml, and the Rust
+# toolchain in rust-toolchain.toml.
+
+# Dependabot can't read this file or those in .config/mise/conf.d/, so bump
+# their pins by hand, to a version that `mise ls-remote <tool>` lists. Only
+# versions are pinned here: mise checks the tools it downloads from GitHub
+# releases against GitHub's digest for the asset, and Node against its signed
+# SHASUMS256.txt. mise's own version and checksums are pinned in
+# .cursor/install.sh.
+#
+# Each CI job installs only the tools its MISE_ENABLE_TOOLS names in
+# .github/workflows/ci.yml, so add a new tool to every job that runs it. A job
+# that runs a tool it doesn't list fails, with an error naming the tool.
+[tools]
+jq = "1.8.2" # .github/rulesets/
+actionlint = "1.7.12" # lint:workflows
+shellcheck = "0.11.0" # lint:workflows; actionlint checks each run: script with it
+zizmor = "1.30.1" # lint:workflows
+# Creates a project from the template and pulls template updates into it; see
+# README.md. mise installs it with uv.
+# ponytail: mise's pipx: backend pins copier but not the packages it depends
+# on, so a new release of one of them can change copier's behaviour. If that
+# happens, give copier a uv project and lockfile of its own, as
+# docs/pyproject.toml does for Sphinx.
+"pipx:copier" = "9.18.2"
+# Python's tasks, the docs build, `spend`, and mise's installs of the pipx:
+# tools, copier and those in cpp.toml, all run uv.
+# Move pyproject.toml's uv_build range with this pin. Outside that range, uv
+# fetches uv_build from PyPI instead of building with its built-in copy.
+uv = "0.12.21"
+
+# Each setup task fails if its lockfile is out of date with its manifest, so
+# CI catches a manifest edited without relocking.
+[tasks.setup]
+description = "Install project dependencies"
+depends = ["setup:*"]
+
+[tasks."setup:docs"]
+description = "Install the docs build's tools that docs/uv.lock pins"
+run = "uv sync --locked --project docs"
+
+[tasks.fmt]
+description = "Format all code in place"
+depends = ["fmt:*"]
+
+[tasks.lint]
+description = "Check formatting, lint, and types without changing files"
+depends = ["lint:*"]
+
+[tasks."lint:rulesets"]
+description = "Check that the ruleset files are valid JSON and that the two review rulesets differ only in name, thread resolution, and auto mode's owned-paths and needs-human-review checks"
+run = ".github/rulesets/check.sh"
+
+[tasks."lint:workflows"]
+description = "Check the GitHub Actions workflows in .github/workflows/ with actionlint, and with zizmor for security problems"
+run = ".github/scripts/lint_workflows.sh"
+
+[tasks."lint:language-listings"]
+description = "Check that each place that must list every language, such as the CI jobs and the Copier questions, lists each language in .config/mise/conf.d/, and name each place that lacks one"
+run = ".github/scripts/language_listings.sh"
+
+[tasks.test]
+description = "Run all tests"
+depends = ["test:*"]
+
+[tasks.mutate]
+description = "Mutation-test the code changed since the merge base with origin/main, and report each mutant no test caught; check doesn't run it, because it's slow"
+depends = ["mutate:*"]
+
+[tasks."test:mutate-script"]
+description = "Check which files .github/scripts/mutate.sh mutates and what it reports, with fake mutation tools"
+run = ".github/scripts/mutate_test.sh"
+
+[tasks."test:lint-workflows-script"]
+description = "Check that .github/scripts/lint_workflows.sh fails on a finding from either actionlint or zizmor, and runs both"
+run = ".github/scripts/lint_workflows_test.sh"
+
+[tasks."test:language-listings-script"]
+description = "Check that .github/scripts/language_listings.sh passes for the repository and names each place that lacks a language, on copies of the files it reads"
+run = ".github/scripts/language_listings_test.sh"
+
+[tasks."test:rulesets"]
+description = "Check the changes .github/rulesets/apply.sh makes with and without --auto, and that check.sh catches broken ruleset files, with a fake gh"
+run = ".github/rulesets/rulesets_test.sh"
+
+[tasks."test:auto-merge-script"]
+description = "Check when .github/scripts/auto_merge.sh turns auto-merge on and off, and which PRs it leaves alone, with a fake gh"
+run = ".github/scripts/auto_merge_test.sh"
+
+[tasks."test:approve-agent-prs-script"]
+description = "Check which PRs .github/scripts/approve_agent_prs.sh approves, in auto mode and review mode, with a fake gh"
+run = ".github/scripts/approve_agent_prs_test.sh"
+
+[tasks."test:needs-human-review-script"]
+description = "Check that .github/scripts/needs_human_review.sh fails a PR with the needs-human-review label and passes one without"
+run = ".github/scripts/needs_human_review_test.sh"
+
+[tasks."test:owned-paths-script"]
+description = "Check which changed paths .github/scripts/owned_paths.sh finds in .github/CODEOWNERS, and when it can't tell, with a fake gh"
+run = ".github/scripts/owned_paths_test.sh"
+
+[tasks."test:block-unlisted-tools-script"]
+description = "Check that .github/scripts/block_unlisted_tools.sh blocks the tools a job's MISE_ENABLE_TOOLS leaves out"
+run = ".github/scripts/block_unlisted_tools_test.sh"
+
+[tasks.docs]
+description = "Build the documentation site"
+run = "docs/build.sh"
+
+[tasks."test:docs"]
+description = "Check that docs/conf.py points the links in README.md and AGENTS.md at the site's pages, turns those to other repository paths into text, and still fails on a path that is missing or outside the repository, by building a small site"
+run = "uv run --project docs python docs/conf_test.py"
+
+[tasks.spend]
+description = "Report tokens and cost per Cursor cloud agent run over the last 7 days, from the Cursor Admin API, labelled with each run's task, repository, and branch; needs CURSOR_ADMIN_API_KEY, and CURSOR_API_KEY for the labels; arguments after -- go to the script, such as --since 2026-09-26"
+run = "uv run python .github/scripts/agent_spend.py"
+
+[tasks.check]
+description = "Run everything CI runs; must pass before opening a PR"
+depends = ["lint", "test", "docs"]

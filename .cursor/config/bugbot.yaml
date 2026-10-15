@@ -1,0 +1,10 @@
+# Bugbot settings for this repository. Bugbot reads this file from the default
+# branch only, and the PR author's personal Bugbot settings override it. See
+# "Repository config file" in https://cursor.com/docs/bugbot.
+version: 1
+
+triggers:
+  # Agents open PRs as drafts and fix Bugbot's findings before asking a person
+  # to review (AGENTS.md), so Bugbot must review drafts. It skips them by
+  # default.
+  drafts: true

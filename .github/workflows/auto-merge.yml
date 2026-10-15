@@ -1,0 +1,60 @@
+# Turns on GitHub's auto-merge for an agent PR once Bugbot has reviewed its
+# latest commit, and turns it off when a push leaves that review behind, by
+# running .github/scripts/auto_merge.sh. GitHub then merges the PR, as a merge
+# commit, only when the rulesets allow it. docs/auto-mode.md describes what
+# this does in auto mode and in review mode.
+#
+# Both triggers run main's copy of this file, with GITHUB_SHA set to main's
+# latest commit, and the job checks out that commit, so no code from a PR runs
+# with this job's write token. pull_request would run the PR's own copy of
+# this file instead.
+name: Auto-merge
+
+on:
+  # The only event that starts a workflow when another app's check finishes.
+  check_run:
+    types: [completed]
+  # Bugbot runs on drafts and doesn't rerun when a PR is marked ready, so
+  # ready_for_review checks again. GitHub keeps auto-merge on after a push by
+  # anyone with write access, so synchronize turns it off until Bugbot has
+  # reviewed the new commit. labeled and unlabeled turn it off and on again
+  # for the needs-human-review label. zizmor flags every pull_request_target,
+  # because checking out a PR with it runs the PR's code with a write token.
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
+    types: [ready_for_review, synchronize, labeled, unlabeled]
+
+permissions: {}
+
+defaults:
+  run:
+    # Naming bash explicitly adds -o pipefail, which the default shell lacks.
+    shell: bash
+
+jobs:
+  auto-merge:
+    # Skips other apps' checks, and PRs from forks, so a fork's PR runs no
+    # step with the write token.
+    if: >-
+      (github.event_name == 'check_run' && github.event.check_run.name == 'Cursor Bugbot')
+      || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository)
+    # One run at a time per PR branch, so each run reads the PR's state after
+    # the previous run has changed it.
+    concurrency:
+      group: auto-merge-${{ github.event.pull_request.head.ref || github.event.check_run.check_suite.head_branch }}
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read # read Bugbot's check run; needed in a private repository
+      contents: write # merging writes to main
+      pull-requests: write # turn auto-merge on and off
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          # A check run lists the open PRs whose head is its commit, leaving
+          # out PRs from forks.
+          PR_NUMBERS: ${{ github.event.pull_request.number || join(github.event.check_run.pull_requests.*.number, ' ') }}
+        run: |
+          read -ra pr_numbers <<< "$PR_NUMBERS"
+          .github/scripts/auto_merge.sh "${pr_numbers[@]}"

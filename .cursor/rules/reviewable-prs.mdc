@@ -1,0 +1,56 @@
+---
+description: Keep pull requests small enough to review properly.
+globs:
+alwaysApply: true
+---
+
+# Reviewable pull requests
+
+A PR is reviewable when one person can check it properly in one sitting.
+Defect detection falls off as review size grows (SmartBear/Cisco study:
+sharply above a few hundred lines), so size is a correctness concern, not style.
+
+Size, counted as `git diff --stat` against the base, excluding lockfiles,
+generated code, and vendored files: aim for **300 changed lines**, with
+**500 as the ceiling**.
+
+- One language or one concern per PR. If the title needs "and", split it.
+- Never mix a refactor, rename, or move with a behaviour change. Land the
+  mechanical change first, then the behaviour change on top.
+- No drive-by edits (formatting, unrelated fixes, dependency bumps). List them
+  under Follow-ups instead.
+- A change that decision D7 in `docs/template-plan.md` says needs an approved
+  plan gets one before coding. Read the `plan` skill.
+
+When a task looks likely to exceed 500 lines, read the `large-changes` skill
+before starting it. It covers splitting the work into stacked PRs, and the
+only cases in which one PR may exceed 500 lines.
+
+## PR body
+
+Start the body from `.github/pull_request_template.md`, and omit a section
+that has nothing rather than writing `None`. Keep the body to about 150 words
+for a PR under 100 changed lines, and at most 300 otherwise.
+
+1. **What and why**: at most 3 sentences, plus one line per new dependency,
+   ending "(not in the plan)" if the approved plan doesn't name it
+   (`dependencies` rule). Link the issue or design doc, and for a Linear
+   issue include `Fixes <issue ID>` (for example `Fixes ENG-123`).
+2. **Verified**: commands and CI runs, one line each, with links, and one
+   line, not a table, naming the test for each acceptance criterion (`testing`
+   skill). A gap in verification or another difference from the plan gets
+   one line, only when it matters: here, or under Needs a person if a person
+   must accept it.
+3. **Needs a person**: decisions only.
+4. **Follow-ups**: one line each; filing them in Linear is optional. A
+   breaking change lists a `prune-review` of the affected area.
+
+Link evidence instead of pasting it: showing that a check fails takes one
+line per check, with its run link. No "why I didn't do X" prose: mention a
+rejected option only when a reviewer would otherwise ask, in one sentence.
+Mention diagrams only when they change; a change to components, data flow,
+state, or external dependencies still updates `docs/architecture.md`
+(`architecture-docs` skill).
+
+Commit messages carry the guide to reviewing: each commit is one coherent
+step, with a message stating why, not just what.

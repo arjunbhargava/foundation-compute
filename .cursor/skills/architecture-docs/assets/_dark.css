@@ -1,0 +1,20 @@
+/* Dark palette for the diagrams. render.sh appends this to every SVG.
+   D2 writes colours as fill and stroke attributes, which CSS overrides.
+   Every colour in the .d2 files appears here. Accents keep their colour:
+   #d97757 #6a9bcc #788c5d #8a887f */
+@media (prefers-color-scheme: dark) {
+  .d2-svg .fill-N7, [fill="#faf9f5"] { fill: #1f1e1d; }
+  [stroke="#faf9f5"] { stroke: #1f1e1d; }
+  [fill="#ffffff"] { fill: #2b2a27; }
+  [fill="#f0eee6"] { fill: #262523; }
+  [stroke="#f0eee6"] { stroke: #262523; }
+  [fill="#e8e6dc"] { fill: #3a3935; }
+  [stroke="#e8e6dc"] { stroke: #3a3935; }
+  [fill="#141413"] { fill: #faf9f5; }
+  [fill="#5e5d59"] { fill: #b0aea5; }
+  [stroke="#5e5d59"] { stroke: #b0aea5; }
+  [stroke="#b0aea5"] { stroke: #5e5d59; }
+  [fill="#f3dfd5"] { fill: #48322a; }
+  [fill="#dde6ed"] { fill: #303a44; }
+  [fill="#e0e3d7"] { fill: #33362b; }
+}

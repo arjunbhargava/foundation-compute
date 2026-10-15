@@ -1,0 +1,65 @@
+# Publishes the documentation site, which `mise run docs` builds, to GitHub
+# Pages. It runs after each push to main, daily, and when started from the
+# Actions tab. It has no pull request trigger, so nothing a PR changes is
+# published before it merges. The daily run publishes PRs that auto-merge:
+# GitHub makes those merges as github-actions[bot], which starts no workflow
+# (docs/auto-mode.md).
+#
+# Pages must be turned on once per repository, in Settings > Pages > Build and
+# deployment > Source: GitHub Actions. Until then the deploy job fails.
+# docs/index.md says more.
+name: Documentation site
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Daily at 04:41 UTC. GitHub delays or drops runs at the start of an hour.
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run at a time. A newer run waits instead of cancelling a deployment
+  # that has started.
+  group: docs-site
+  cancel-in-progress: false
+
+defaults:
+  run:
+    # Naming bash explicitly adds -o pipefail, which the default shell lacks.
+    shell: bash
+
+jobs:
+  build:
+    # The same build as the docs job in ci.yml. This job sets no
+    # MISE_ENABLE_TOOLS, so install.sh installs every tool the project pins,
+    # and there is no second list of the docs tools to keep up to date.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash .cursor/install.sh
+      - run: mise run setup
+      - run: mise run docs
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs/_build/html
+
+  deploy:
+    needs: build
+    # workflow_dispatch can start a run on any branch; only main is published.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write # create the Pages deployment
+      id-token: write # prove to Pages which workflow and branch the deployment comes from
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

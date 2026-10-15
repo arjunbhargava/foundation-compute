@@ -1,0 +1,3 @@
+{
+  "install": "MISE_INSTALL_PATH=/usr/local/bin/mise bash .cursor/install.sh"
+}

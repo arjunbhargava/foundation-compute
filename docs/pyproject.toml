@@ -1,0 +1,21 @@
+# Sphinx and its extensions, which docs/build.sh runs to build the
+# documentation site. They are a uv project of their own, separate from the
+# Python package in the root pyproject.toml, so that Sphinx doesn't depend on
+# that package, which a project may not have.
+[project]
+name = "docs"
+version = "0.1.0"
+description = "The documentation site's build tools, which docs/build.sh runs."
+# uv reads .python-version only in a project's own directory, not the root's,
+# so this range picks the interpreter for the docs build.
+requires-python = "==3.14.*"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "breathe>=5.0.0",
+    "furo>=2025.12.19",
+    "myst-parser>=5.1.0",
+    "sphinx>=9.1.0",
+    "sphinx-autoapi>=3.8.1",
+]

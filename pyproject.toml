@@ -1,0 +1,71 @@
+[project]
+name = "foundation-compute"
+version = "0.1.0"
+description = "Compute infrastructure for agents."
+requires-python = "==3.14.*"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "import-linter>=2.15",
+    "mutmut>=3.8.0",
+    "pyright[nodejs]>=1.1.414",
+    "pytest>=9.1.1",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.16.10",
+]
+
+[tool.ruff]
+# People write .cursor/ (AGENTS.md), and ruff formats the Python blocks in its
+# Markdown.
+extend-exclude = [".cursor"]
+
+[tool.ruff.lint]
+extend-select = ["D"]
+ignore = ["D107"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests aren't API reference; their names state the behaviour they check.
+"tests/**" = ["D"]
+".github/scripts/*_test.py" = ["D"]
+"docs/*_test.py" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pyright]
+typeCheckingMode = "strict"
+# mutants/ is mutmut's generated copy of src/. Setting exclude replaces
+# pyright's defaults, so the other three entries restore them.
+exclude = ["mutants", "**/node_modules", "**/__pycache__", "**/.*"]
+
+# Module boundaries, which `mise run lint:python` checks with lint-imports.
+# Add a contract for each rule:
+# https://import-linter.readthedocs.io/en/stable/contract_types.html
+[tool.importlinter]
+root_package = "foundation_compute"
+# Lets a contract name a package from outside foundation_compute, such as pytest.
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Library code doesn't import pytest, a development-only dependency"
+type = "forbidden"
+source_modules = ["foundation_compute"]
+forbidden_modules = ["pytest"]
+
+[tool.pytest]
+# -n auto runs tests in parallel, so a test that depends on shared state or on
+# another test's order fails early instead of intermittently later.
+addopts = ["-n", "auto", "--doctest-modules"]
+testpaths = ["src", "tests", ".github/scripts"]
+strict = true
+filterwarnings = ["error"]
+
+[tool.mutmut]
+# mutmut records which tests call each function, and can't see calls made in
+# pytest-xdist's worker processes, so it runs the tests in one process.
+pytest_add_cli_args = ["-n", "0"]
