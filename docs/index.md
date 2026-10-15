@@ -30,6 +30,7 @@ agent-instructions
 agent-rules-and-skills
 architecture
 auto-mode
+aws-admin-setup
 compute-jobs
 install-script
 linear
