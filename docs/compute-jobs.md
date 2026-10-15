@@ -257,7 +257,7 @@ admin changes: families, GPUs per node, maximum nodes, maximum run time, and
 | `cpu` | none; c7i, m7i | CPU simulations, analysis, small drivers | up to m7i.4xlarge, 16 vCPU, $0.81/h | 4 | 3.23 |
 | `gpu-small` | 1 × L4 (g6), then 1 × T4 (g4dn) | Development, small simulations, inference | g6.xlarge $0.80/h | 1 | 0.80 |
 | `gpu-sim` | L40S (g6e): 1, 4, or 8 per node | Rendering simulators (Isaac Sim, RTX), GPU physics, search | g6e.48xlarge, 8 GPUs, $30.13/h | 2 | 60.26 |
-| `gpu-train` | 8 × L40S (g6e.48xlarge), then 8 × A10G (g5.48xlarge, $16.29/h) | Training that fits in 44 GB per GPU | $30.13/h | 2 | 60.26 |
+| `gpu-train` | 8 × L40S (g6e.48xlarge) | Training that fits in 44 GB per GPU | $30.13/h | 2 | 60.26 |
 
 The P family (`gpu-train-large`: H100, A100) is [deferred](#deferred).
 Isaac Sim doesn't support GPUs without RT cores, such as A100 and H100, and
@@ -763,7 +763,10 @@ the PR that builds it moves it out of this table.
    secret, or wait for support.
 7. **Tag immutability**: a ruleset blocking updates and deletion of `v*` tags
    (PR 8), or pins by commit, which mise also accepts but reads worse.
-8. **Offline chart checks in CI**: a job with `MISE_ENV=admin` and no
+8. **A fallback for `gpu-train`.** The template plan's 8 × A10G
+   (g5.48xlarge, $16.29/h) has 24 GB per GPU, so it can't hold a job that the
+   profile admits at up to 44 GB per GPU. Add it as a separate 24 GB profile, or not at all.
+9. **Offline chart checks in CI**: a job with `MISE_ENV=admin` and no
    credentials that runs `helm template` would test PR 10 in CI, but puts the
    admin tools in CI, which the plan avoided.
 
