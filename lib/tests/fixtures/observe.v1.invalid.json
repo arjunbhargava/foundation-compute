@@ -1,0 +1,8 @@
+{
+  "kind_missing": {"schema_version": 1, "message": ""},
+  "schema_version_missing": {"kind": null},
+  "kind_with_a_capital": {"schema_version": 1, "kind": "Unknown_job", "message": ""},
+  "kind_starting_with_a_digit": {"schema_version": 1, "kind": "1st_failure", "message": ""},
+  "kind_with_a_hyphen": {"schema_version": 1, "kind": "unknown-job", "message": ""},
+  "kind_without_a_message": {"schema_version": 1, "kind": "unknown_job"}
+}

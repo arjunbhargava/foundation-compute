@@ -1,0 +1,6 @@
+{
+  "exit_0": {"schema_version": 1, "kind": null},
+  "exit_0_with_other_fields": {"schema_version": 1, "kind": null, "state": "RUNNING"},
+  "a_listed_kind": {"schema_version": 1, "kind": "unknown_job", "message": "No job named pr81-search-00000000."},
+  "a_kind_added_later": {"schema_version": 1, "kind": "quota_exceeded2", "message": ""}
+}

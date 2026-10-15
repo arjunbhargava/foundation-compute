@@ -1,0 +1,5 @@
+{
+  "search_with_every_field": {"schema_version": 1, "kind": "search", "profile": "gpu-sim", "nodes": 2, "command": "python -m myproject.search", "max_runtime_minutes": 180, "budget_usd": 200, "use_spot": false, "image": "default", "uv_extras": ["cuda"], "smoke": true, "seed": 1234, "settings": {"population": 10000}},
+  "single_without_schema_version": {"kind": "single", "profile": "cpu", "command": "python simulate.py", "max_runtime_minutes": 15, "budget_usd": 0.5},
+  "multi_node_on_one_node": {"kind": "multi-node", "profile": "cpu", "nodes": 1, "command": "torchrun train.py", "max_runtime_minutes": 15, "budget_usd": 1, "use_spot": true, "smoke": false}
+}

@@ -1,0 +1,5 @@
+{
+  "empty": {},
+  "schema_version_a_string": {"schema_version": "1"},
+  "schema_version_another_major": {"schema_version": 0}
+}

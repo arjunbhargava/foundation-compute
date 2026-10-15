@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "archive.json, major version 1",
+  "description": "The marker at the archive bucket's root, written by compute-server:provision, giving the archive layout's major version.",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": { "const": 1 }
+  }
+}

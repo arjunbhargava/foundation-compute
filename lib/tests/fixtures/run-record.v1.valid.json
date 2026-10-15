@@ -1,0 +1,4 @@
+{
+  "schema_version_only": {"schema_version": 1},
+  "with_fields_a_later_minor_adds": {"schema_version": 1, "exit_code": 0}
+}
