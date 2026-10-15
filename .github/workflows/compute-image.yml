@@ -1,0 +1,117 @@
+# Builds the compute job image from Dockerfile and runs its smoke test inside
+# it, on every pull request and on each `v*` tag. On a tag it then pushes the
+# image to the private ECR repository by digest, attests it, and tags it
+# (docs/compute-jobs.md, "The job image").
+#
+# The push assumes the AWS role `compute-jobs-image-push` with GitHub's OIDC
+# token. The role trusts only the GitHub environment `release`, so only the
+# publish job, which declares it, can assume it. The role's ARN and region
+# are variables of that environment; no secret is involved. Until the owner
+# sets them (step 8 of "Setup for the owner"), the publish job skips the push
+# with a notice.
+name: Compute job image
+
+on:
+  pull_request:
+  push:
+    tags: ["v*"]
+
+# Each job grants itself only what it needs.
+permissions: {}
+
+concurrency:
+  # A new commit on a PR cancels the PR's older run; a tag's run never is.
+  group: compute-image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    # Naming bash explicitly adds -o pipefail, which the default shell lacks.
+    shell: bash
+
+env:
+  # The ECR repository's name in the registry, from docs/compute-jobs.md.
+  ECR_REPOSITORY_NAME: compute-jobs/job
+
+jobs:
+  build-and-smoke-test:
+    # Needs no AWS access, so a PR from anywhere can run it.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # check out the repository
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the image
+        run: docker build --tag compute-jobs-job:ci .
+      - name: "AC 18: the smoke test passes inside the built image"
+        run: |
+          docker run --rm --entrypoint bash \
+            --volume "$PWD/.github/scripts:/scripts:ro" \
+            compute-jobs-job:ci /scripts/image_smoke_test.sh
+
+  publish:
+    # Only a tag push gets here, and only this job declares the environment
+    # `release`, which the AWS role trusts.
+    needs: build-and-smoke-test
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read # check out the repository
+      id-token: write # assume the AWS role, and sign the attestation
+      attestations: write # store the attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Skip the push until the environment's variables are set
+        id: gate
+        env:
+          COMPUTE_JOBS_ECR_PUSH_ROLE_ARN: ${{ vars.COMPUTE_JOBS_ECR_PUSH_ROLE_ARN }}
+          COMPUTE_JOBS_AWS_REGION: ${{ vars.COMPUTE_JOBS_AWS_REGION }}
+        run: .github/scripts/image_push_gate.sh
+      - if: steps.gate.outputs.configured == 'true'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.COMPUTE_JOBS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ vars.COMPUTE_JOBS_AWS_REGION }}
+      - if: steps.gate.outputs.configured == 'true'
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - if: steps.gate.outputs.configured == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: steps.gate.outputs.configured == 'true'
+        name: Push the image by digest
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          # One manifest, with no extra attestation manifests: the attestation
+          # below is the provenance, and it is stored on GitHub.
+          provenance: false
+          sbom: false
+          # No tag yet: the tag is added after the image is smoke-tested and
+          # attested, and ECR's tags are immutable.
+          outputs: type=image,name=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_NAME }},push-by-digest=true,name-canonical=true,push=true
+      - if: steps.gate.outputs.configured == 'true'
+        name: "AC 18: the smoke test passes inside the pushed image"
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_NAME }}@${{ steps.push.outputs.digest }}
+        run: |
+          docker run --rm --entrypoint bash \
+            --volume "$PWD/.github/scripts:/scripts:ro" \
+            "$IMAGE" /scripts/image_smoke_test.sh
+      - if: steps.gate.outputs.configured == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+      - if: steps.gate.outputs.configured == 'true'
+        name: Tag the attested image with the release tag
+        env:
+          REPOSITORY: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_NAME }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: docker buildx imagetools create --tag "$REPOSITORY:$GITHUB_REF_NAME" "$REPOSITORY@$DIGEST"

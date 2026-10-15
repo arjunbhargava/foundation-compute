@@ -22,6 +22,7 @@ the same thing:
 | `mise run test:rulesets` | Check the changes `.github/rulesets/apply.sh` makes with and without `--auto`, and that `lint:rulesets` catches broken ruleset files, with a fake `gh`. |
 | `mise run test:auto-merge-script` | Check when `.github/scripts/auto_merge.sh` turns auto-merge on and off, and which PRs it leaves alone, with a fake `gh`. |
 | `mise run test:approve-agent-prs-script` | Check which PRs `.github/scripts/approve_agent_prs.sh` approves, in auto mode and review mode, with a fake `gh`. |
+| `mise run test:image-push-gate-script` | Check that `.github/scripts/image_push_gate.sh` skips the job image's push, and names each unset variable, unless the `release` environment's role ARN and region are both set. |
 | `mise run test:needs-human-review-script` | Check that `.github/scripts/needs_human_review.sh` fails a PR with the `needs-human-review` label and passes one without. |
 | `mise run test:owned-paths-script` | Check which changed paths `.github/scripts/owned_paths.sh` finds in `.github/CODEOWNERS`, and when it can't tell, with a fake `gh`. |
 | `mise run test:mutate-script` | Check which files `.github/scripts/mutate.sh` mutates and what it reports, with fake mutation tools. |
@@ -54,6 +55,9 @@ language the project has: Python.
   - Python: a contract under `[tool.importlinter]` in `pyproject.toml`. The
     client may import the library; the library never imports the client,
     and the admin policy imports neither.
+- `Dockerfile`: the job image, built and smoke-tested by
+  `.github/workflows/compute-image.yml`, which pushes it to ECR on `v*` tags
+  (`docs/compute-jobs.md`, "The job image").
 - `.github/scripts/`: the repository's own tooling, which people, agents, and
   CI run through `mise run`, such as `mutate.sh` and `agent_spend.py`. Each
   script is tested by the `_test` file next to it.
