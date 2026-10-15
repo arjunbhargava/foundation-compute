@@ -5,7 +5,9 @@ description = "Code that runs inside a compute job: the job file, progress repor
 # Job code imports this library on the project's own Python, not the client's
 # 3.13.
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "boto3>=1.43.114",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.23,<0.13.0"]
@@ -24,5 +26,7 @@ pytest_add_cli_args = ["-n", "0"]
 
 [dependency-groups]
 dev = [
+    "boto3-stubs-lite[s3,sts]>=1.43.114",
     "jsonschema>=4.26.0",
+    "moto[s3]>=5.2.4",
 ]
