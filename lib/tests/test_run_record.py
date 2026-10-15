@@ -29,14 +29,45 @@ def test_a_finished_record_validates_and_keeps_every_field_it_has() -> None:
         exit_code=124,
         finished_at="2026-10-15T06:26:00Z",
         seed=1234,
+        image_cuda_version="12.8",
         driver_cuda_version="12.8",
     )
+
     document = json.loads(json.dumps(finished.to_dict()))
+
     jsonschema.validate(document, load_schema("run-record", 1))
-    assert document["schema_version"] == 1
-    assert document["exit_code"] == 124
-    assert document["seed"] == 1234
-    assert "failure" not in document
+    assert document == {
+        "schema_version": 1,
+        "job_name": "pr81-search-3f9a2c1d",
+        "kind": "search",
+        "machine_id": "AROAEXAMPLE:i-0abc",
+        "node_rank": 0,
+        "nodes": 2,
+        "state": "timed_out",
+        "started_at": "2026-10-15T03:26:00Z",
+        "command": "python -m myproject.search",
+        "ran_command": True,
+        "seed": 1234,
+        "image_cuda_version": "12.8",
+        "driver_cuda_version": "12.8",
+        "exit_code": 124,
+        "finished_at": "2026-10-15T06:26:00Z",
+    }
+
+
+def test_a_record_leaves_out_the_fields_it_does_not_know() -> None:
+    assert set(RUNNING.to_dict()) == {
+        "schema_version",
+        "job_name",
+        "kind",
+        "machine_id",
+        "node_rank",
+        "nodes",
+        "state",
+        "started_at",
+        "command",
+        "ran_command",
+    }
 
 
 @pytest.mark.parametrize(
