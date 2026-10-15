@@ -111,10 +111,8 @@ strict = true
 filterwarnings = ["error"]
 
 [tool.mutmut]
-# mutmut guesses lib/ as the code to mutate when lib/ exists. .github/scripts/
-# mutate.sh runs mutmut in each distribution's directory, where it reads that
-# distribution's pyproject.toml.
+# mutmut takes one src/ per run, and guesses lib/ before src/ in a directory
+# that has both, as the root of a workspace with a member in lib/ does.
+# .github/scripts/mutate.sh runs mutmut in each distribution's directory. A
+# member needs no [tool.mutmut] unless it has a lib/ directory of its own.
 source_paths = ["src"]
-# mutmut records which tests call each function, and can't see calls made in
-# pytest-xdist's worker processes, so it runs the tests in one process.
-pytest_add_cli_args = ["-n", "0"]

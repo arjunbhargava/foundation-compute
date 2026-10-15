@@ -2,12 +2,6 @@
 # Checks which files .github/scripts/mutate.sh mutates and what its report
 # says, without running a mutation tool. It runs the script in a temporary
 # git repository with one package in each language, a second Python
-<<<<<<< before updating
-# distribution in lib/, and two Python scripts in .github/scripts/, where fake uv, cargo, and pnpm record the files or module
-# globs they are given and print canned results: one surviving and one caught
-# mutant, or two caught mutants if FAKE_ALL_KILLED is set. For the scripts,
-# fake uv reports one mutant, which survives unless FAKE_ALL_KILLED is set.
-=======
 # distribution in lib/ (a uv workspace member), a third in tools/ that has no
 # src/, two Python scripts in .github/scripts/, and a copier.yml, which only
 # the template repository has, where fake uv, cargo, and pnpm record the files
@@ -26,7 +20,6 @@
 # FAKE_MUTMUT_FAILS is "failing_test" (pytest exits with status 1), and,
 # although pytest collected no test, if it is "untested_mutant" (a mutant is
 # in the changed files).
->>>>>>> after updating
 #
 # Usage: .github/scripts/mutate_test.sh
 set -euo pipefail
@@ -46,17 +39,11 @@ main() {
 
   check python src/pkg/a.py 'pkg.a.x*' "1 of 2 mutants survived"
   check python src/pkg/__init__.py 'pkg.x*' "1 of 2 mutants survived"
-<<<<<<< before updating
-  check python tests/test_a.py $'pkg.x*\npkg.a.x*\npkg.b.x*' "1 of 2 mutants survived"
-  check python lib/src/lpkg/a.py 'lpkg.a.x*' "Python (lib) mutation testing: 1 of 2 mutants survived"
-  check python lib/tests/test_l.py $'lpkg.x*\nlpkg.a.x*' "Python (lib) mutation testing: 1 of 2 mutants survived"
-=======
   check python tests/test_a.py $'pkg.x*\npkg.a.x*\npkg.b.x*' "Python mutation testing: 1 of 2 mutants survived"
   check python lib/src/lpkg/a.py 'lpkg.a.x*' "Python (lib) mutation testing: 1 of 2 mutants survived"
   check python lib/tests/test_l.py $'lpkg.x*\nlpkg.a.x*' "Python (lib) mutation testing: 1 of 2 mutants survived"
   check python tools/pyproject.toml "" "Python mutation testing: no source or test file changed"
   SINGLE_PACKAGE=1 check python lib/src/lpkg/a.py "" "Python mutation testing: no source or test file changed" "Python (lib)"
->>>>>>> after updating
   check python crates/c/src/x.rs "" "no source or test file changed"
   check rust crates/c/src/x.rs crates/c/src/x.rs "1 of 2 mutants survived"
   check rust crates/c/tests/t.rs $'crates/c/src/lib.rs\ncrates/c/src/x.rs' "1 of 2 mutants survived"
@@ -67,11 +54,7 @@ main() {
 
   check python .github/scripts/script_a.py 'script_a.x*' "Python scripts mutation testing: 1 of 1 mutants survived"
   check python .github/scripts/script_a_test.py $'script_a.x*\nscript_b.x*' "Python scripts mutation testing: 1 of 1 mutants survived"
-<<<<<<< before updating
-  check python .github/scripts/mutate.sh $'lpkg.x*\nlpkg.a.x*\npkg.x*\npkg.a.x*\npkg.b.x*\nscript_a.x*\nscript_b.x*' "Python scripts mutation testing: 1 of 1 mutants survived"
-=======
   check python .github/scripts/mutate.sh $'pkg.x*\npkg.a.x*\npkg.b.x*\nlpkg.x*\nlpkg.a.x*\nscript_a.x*\nscript_b.x*' "Python scripts mutation testing: 1 of 1 mutants survived"
->>>>>>> after updating
   check python .github/scripts/shell_script.sh "" "Python scripts mutation testing: no source or test file changed"
 
   # A project made from the template has no copier.yml, and doesn't mutate the
@@ -95,11 +78,7 @@ main() {
   FAKE_ALL_KILLED=1 check python .github/scripts/script_a.py 'script_a.x*' "Python scripts mutation testing: 0 of 1 mutants survived"
   FAKE_ALL_KILLED=1 check rust crates/c/src/x.rs crates/c/src/x.rs "0 of 2 mutants survived"
   FAKE_ALL_KILLED=1 check typescript packages/p/src/a.ts packages/p/src/a.ts "0 of 2 mutants survived"
-<<<<<<< before updating
-  echo ".github/scripts/mutate.sh chose the expected files and reported them in all 20 cases."
-=======
   echo ".github/scripts/mutate.sh chose the expected files and reported them in all 37 cases."
->>>>>>> after updating
 }
 
 # Writes fake uv, cargo, and pnpm, which append the module globs or files
@@ -234,21 +213,12 @@ EOF
 
 make_repository() {
   mkdir -p "$work/repo/.github/scripts" "$work/repo/src/pkg" "$work/repo/tests" \
-<<<<<<< before updating
-    "$work/repo/lib/src/lpkg" "$work/repo/lib/tests" \
-    "$work/repo/crates/c/src" "$work/repo/crates/c/tests" "$work/repo/packages/p/src"
-  cd "$work/repo"
-  cp "$script_dir/mutate.sh" .github/scripts/
-  touch pyproject.toml src/pkg/__init__.py src/pkg/a.py src/pkg/b.py tests/test_a.py \
-    lib/pyproject.toml lib/src/lpkg/__init__.py lib/src/lpkg/a.py lib/tests/test_l.py \
-=======
     "$work/repo/lib/src/lpkg" "$work/repo/lib/tests" "$work/repo/tools" \
     "$work/repo/crates/c/src" "$work/repo/crates/c/tests" "$work/repo/packages/p/src"
   cd "$work/repo"
   cp "$script_dir/mutate.sh" .github/scripts/
   touch copier.yml pyproject.toml src/pkg/__init__.py src/pkg/a.py src/pkg/b.py tests/test_a.py \
     lib/pyproject.toml lib/src/lpkg/__init__.py lib/src/lpkg/a.py lib/tests/test_l.py tools/pyproject.toml \
->>>>>>> after updating
     crates/c/src/lib.rs crates/c/src/x.rs crates/c/tests/t.rs \
     packages/p/src/a.ts packages/p/src/b.ts packages/p/src/a.test.ts stryker.config.json \
     .github/scripts/script_a.py .github/scripts/script_b.py .github/scripts/script_a_test.py \

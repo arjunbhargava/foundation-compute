@@ -60,17 +60,6 @@ mutate_python() {
   fi
 }
 
-<<<<<<< before updating
-# A distribution is a directory with a pyproject.toml and a src/, such as the
-# root or a uv workspace member. mutmut runs in each distribution's directory,
-# because it derives a module's name from the file's path with only a leading
-# src/ removed, and reads its settings from that directory's pyproject.toml.
-mutate_python_source() {
-  local manifest
-  for manifest in $(git ls-files -- pyproject.toml '*/pyproject.toml'); do
-    if [[ -d $(dirname "$manifest")/src ]]; then
-      mutate_python_distribution "$(dirname "$manifest")"
-=======
 # A distribution is the root project or a uv workspace member, each with its
 # code in src/ and its tests in tests/. mutmut derives a module's name from
 # the file's path with only a leading src/ removed, and takes a single src/
@@ -96,7 +85,6 @@ python_distribution_directories() {
     path=${path:-.}
     if [[ $path == . || -d $path/src ]]; then
       echo "$path"
->>>>>>> after updating
     fi
   done
 }
@@ -108,10 +96,7 @@ mutate_python_distribution() {
     label="Python ($directory)"
     prefix=$directory/
   fi
-<<<<<<< before updating
-=======
 
->>>>>>> after updating
   local files
   files=$(files_to_mutate "${prefix}tests/" "${prefix}src/*.py")
   if [[ -z $files ]]; then
@@ -131,11 +116,8 @@ mutate_python_distribution() {
     module_globs+=("${module//\//.}.x*")
   done
 
-<<<<<<< before updating
-=======
   # uv runs in the distribution's directory, where mutmut reads its
   # settings, but with the root project's environment.
->>>>>>> after updating
   local project_root=$PWD
   (cd "$directory" && UV_PROJECT=$project_root run_mutmut "$label" "$files" "${module_globs[@]}")
 }
@@ -358,11 +340,7 @@ mutate_typescript() {
 # its workflow, or stryker.config.json, which only mutation testing reads,
 # counts as a change to every package's tests, so that the PR making it runs
 # every step here in CI. In a git pathspec, * also matches /,
-<<<<<<< before updating
-# so src/*.py includes src/compute_jobs_cli/__init__.py.
-=======
 # so src/*.py includes src/pkg/module.py.
->>>>>>> after updating
 files_to_mutate() {
   local tests=$1
   shift

@@ -16,13 +16,8 @@ on:
     paths:
       - src/**
       - tests/**
-<<<<<<< before updating
-      - lib/**
-      - compute/server/admin_policy/**
-=======
       - '**/src/**'
       - '**/tests/**'
->>>>>>> after updating
       - crates/**
       - packages/**
       - .github/scripts/*.py
