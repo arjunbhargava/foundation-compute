@@ -110,7 +110,7 @@ def test_status_lists_each_failed_check(capsys: pytest.CaptureFixture[str]) -> N
 
     errors = capsys.readouterr().err
     assert exit_code == 1
-    assert "3 of 8 checks failed:" in errors
+    assert "3 of 7 checks failed:" in errors
     assert "'Running On-Demand G and VT instances' is 768 vCPUs, above" in errors
     assert (
         "has no action attaching compute-jobs-deny-launch to compute-jobs-launcher"
@@ -119,7 +119,7 @@ def test_status_lists_each_failed_check(capsys: pytest.CaptureFixture[str]) -> N
     assert "with HTTP 200, not 401" in errors
 
 
-def test_status_fails_when_the_spending_ceiling_exceeds_the_daily_cap(
+def test_status_reports_a_ceiling_above_the_daily_cap_without_failing(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     limits = copy.deepcopy(shipped_limits())
@@ -129,8 +129,13 @@ def test_status_fails_when_the_spending_ceiling_exceeds_the_daily_cap(
 
     exit_code, _ = run_status(CONFIGURED, healthy_account(limits), 401, limits)
 
-    assert exit_code == 1
-    assert "spending ceiling is $470.63 an hour" in capsys.readouterr().err
+    output = capsys.readouterr().out
+    rows = [line.split() for line in output.splitlines()]
+    assert exit_code == 0
+    assert "The quotas' spending ceiling, for information only:" in output
+    assert ["p_on_demand", "384", "110.08"] in rows
+    assert ["Total", "470.63"] in rows
+    assert ["daily_cap_usd", "/", "24", "416.67"] in rows
 
 
 def test_status_fails_when_the_server_does_not_answer_or_is_not_set(
