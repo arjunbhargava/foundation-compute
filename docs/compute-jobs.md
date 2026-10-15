@@ -859,15 +859,17 @@ environment's workflow, and can push only to `compute-jobs/job`.
 
 None of these steps is confirmed done. Each works in a phone browser except 5
 and 10, which run on a laptop. Steps 1 to 4 can start now; the rest wait for
-PR 13.
+PR 13. An AWS administrator who does steps 1 to 5 and 9 for the owner, or
+grants the access for them, follows [AWS administrator setup](aws-admin-setup.md).
 
 1. Create an AWS account, `agent-jobs`, under the negotiated agreement, and
    sign in to it with IAM Identity Center:
    <https://console.aws.amazon.com/organizations/v2/home/accounts>.
-2. In `us-east-1`, request vCPU quotas: "Running On-Demand G and VT
-   instances" 384, "All G and VT Spot Instance Requests" 384, and "Running
-   On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances" 64. Leave
-   "Running On-Demand P instances" at 0. A new account starts at 0 for G and
+2. In `us-east-1`, make sure these vCPU quotas are at least: "Running
+   On-Demand G and VT instances" 384, "All G and VT Spot Instance Requests"
+   384, and "Running On-Demand Standard (A, C, D, H, I, M, R, T, Z)
+   instances" 64; request no P quota, and lower none. `limits.yaml` must
+   mirror the actual values. A new account starts at 0 for G and
    P and 5 for Standard
    ([AWS](https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-instance-quotas.html)):
    <https://console.aws.amazon.com/servicequotas/home/services/ec2/quotas>.
@@ -903,7 +905,9 @@ PR 13.
    Then rerun the image workflow for the latest tag, from the Actions tab.
 9. Create a daily cost budget, `compute-jobs-daily`, of $10,000, with email
    alerts at 50% and 80%, and an action at 100% of actual cost that applies
-   `compute-jobs-deny-launch` to `compute-jobs-launcher`:
+   `compute-jobs-deny-launch` to `compute-jobs-launcher`, through an IAM role
+   that AWS Budgets assumes
+   ([AWS](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-action-configure.html)):
    <https://console.aws.amazon.com/costmanagement/home#/budgets/create>.
    Alerts alone don't stop spend; the action and the quotas do.
 10. Run `MISE_ENV=admin mise run compute-server:status`; it must pass.
