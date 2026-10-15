@@ -42,12 +42,7 @@ extensions = ["myst_parser"]
 # Python: parsed from source without importing it.
 if (repository_root / "pyproject.toml").is_file():
     extensions += ["autoapi.extension", "sphinx.ext.intersphinx", "sphinx.ext.napoleon"]
-<<<<<<< before updating
-    # One src/ per distribution, as in the root pyproject.toml's workspace.
-    autoapi_dirs = ["../src", "../lib/src", "../compute/server/admin_policy/src"]
-=======
     autoapi_dirs = python_source_directories()
->>>>>>> after updating
     autoapi_root = "api/python"
     autoapi_options = [
         "members",

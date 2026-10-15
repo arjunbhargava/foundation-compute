@@ -14,9 +14,6 @@ rm -rf docs/_build docs/_generated
 # Each distribution, the root project and each member of its uv workspace if
 # it has one, with a src/. docs/conf.py derives the same list.
 if [[ -f pyproject.toml ]]; then
-<<<<<<< before updating
-  uv run ruff check --quiet src lib/src compute/server/admin_policy/src
-=======
   distributions=$(uv workspace list --paths)
   source_directories=()
   for distribution in $distributions; do
@@ -25,7 +22,6 @@ if [[ -f pyproject.toml ]]; then
     fi
   done
   uv run ruff check --quiet "${source_directories[@]}"
->>>>>>> after updating
 fi
 
 # Rust: rustdoc's HTML, published under api/rust/ and linked from
