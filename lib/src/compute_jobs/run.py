@@ -29,6 +29,8 @@ Variables the command sees, besides the caller's own:
 On a ``search`` job, rank 0 starts a Ray head on ``RAY_PORT`` before the
 command and stops it after. Every other rank joins that cluster, runs no
 command, and exits 0 when the head's port closes. ``ray`` must be on ``PATH``.
+The wrapper ends only the Rays it started, never with ``ray stop``, because
+that would also end the Ray that SkyPilot runs the job with.
 
 The command's exit code is the wrapper's, so SkyPilot sees the job fail. A
 command stopped by ``timeout`` exits 124 and is recorded as ``timed_out``.
@@ -39,6 +41,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import socket
 import subprocess
 import sys
@@ -76,6 +79,9 @@ RAY_PORT = 6379
 
 RAY_HEAD_WAIT_S = 600.0
 """How long a worker waits for rank 0's Ray before it fails the job."""
+
+RAY_STOP_GRACE_S = 30.0
+"""How long ``_stop_ray`` waits after SIGTERM before it sends SIGKILL."""
 
 RAY_POLL_INTERVAL_S = 5.0
 """How often a worker checks whether rank 0's Ray is up, and then whether it is
@@ -311,47 +317,110 @@ def _run_command_on_ray_head(
     command: str, environ: Mapping[str, str], log: "_JobLog"
 ) -> int:
     """Start Ray's head, run the command, and stop Ray, returning the exit code."""
-    start_head = (
-        f"ray start --head --port={RAY_PORT} --include-dashboard=false "
-        f"--disable-usage-stats --node-ip-address={shlex.quote(environ['MASTER_ADDR'])}"
+    address = (environ["MASTER_ADDR"], RAY_PORT)
+    head = _start_ray(
+        f"--head --port={RAY_PORT} --include-dashboard=false --disable-usage-stats "
+        f"--node-ip-address={shlex.quote(address[0])}",
+        environ,
+        log,
     )
-    started = _run_command(start_head, environ, log)
-    if started != 0:
-        return started
     try:
+        if not _wait_for_ray_head(address, head, log):
+            return head.poll() or FAILURE_BEFORE_COMMAND_EXIT_CODE
         return _run_command(command, environ, log)
     finally:
-        _run_command("ray stop", environ, log)
+        _stop_ray(head)
 
 
 def _hold_as_ray_worker(environ: Mapping[str, str], log: "_JobLog") -> int:
     """Join the head's Ray cluster and stay until the head's port closes.
 
     Returns 0 once rank 0's Ray is gone, and otherwise the exit code of the
-    ``ray start`` that failed, or 1 if the head never came up.
+    ``ray`` that stopped while the head was still up, or 1 if the head never
+    came up.
     """
-    head = (environ["MASTER_ADDR"], RAY_PORT)
-    deadline_s = time.monotonic() + RAY_HEAD_WAIT_S
-    while not _accepts_connections(head):
-        if time.monotonic() > deadline_s:
-            log.write(
-                f"compute-jobs: Ray's head at {head[0]}:{head[1]} did not come up "
-                f"within {RAY_HEAD_WAIT_S:.0f} s; check rank 0's log.\n"
-            )
-            return FAILURE_BEFORE_COMMAND_EXIT_CODE
-        time.sleep(RAY_POLL_INTERVAL_S)
+    address = (environ["MASTER_ADDR"], RAY_PORT)
+    if not _wait_for_ray_head(address, None, log):
+        return FAILURE_BEFORE_COMMAND_EXIT_CODE
 
-    joined = _run_command(
-        f"ray start --address={shlex.quote(head[0])}:{head[1]} --disable-usage-stats",
+    worker = _start_ray(
+        f"--address={shlex.quote(address[0])}:{address[1]} --disable-usage-stats",
         environ,
         log,
     )
-    if joined != 0:
-        return joined
-    while _accepts_connections(head):
+    try:
+        while worker.poll() is None and _accepts_connections(address):
+            time.sleep(RAY_POLL_INTERVAL_S)
+        if _accepts_connections(address):
+            return worker.poll() or FAILURE_BEFORE_COMMAND_EXIT_CODE
+        return 0
+    finally:
+        _stop_ray(worker)
+
+
+def _start_ray(
+    arguments: str, environ: Mapping[str, str], log: "_JobLog"
+) -> "subprocess.Popen[str]":
+    """Run ``ray start <arguments> --block`` in a process group of its own.
+
+    Ray's output goes to the log. The group lets ``_stop_ray`` end this Ray
+    without ``ray stop``, which ends every Ray on the machine, including the
+    one SkyPilot runs the job with.
+    """
+    process = subprocess.Popen(
+        f"exec ray start {arguments} --block",
+        shell=True,
+        executable="/bin/bash",
+        env=dict(environ),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",
+        start_new_session=True,
+    )
+    threading.Thread(target=_copy_to_log, args=(process, log), daemon=True).start()
+    return process
+
+
+def _copy_to_log(process: "subprocess.Popen[str]", log: "_JobLog") -> None:
+    assert process.stdout is not None
+    with process.stdout:
+        for line in process.stdout:
+            log.write(line)
+
+
+def _stop_ray(process: "subprocess.Popen[str]") -> None:
+    """End a Ray from ``_start_ray`` and its children, with SIGKILL after a grace period."""
+    for signal_number in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, signal_number)
+            process.wait(timeout=RAY_STOP_GRACE_S)
+            return
+        except ProcessLookupError:
+            process.wait()
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def _wait_for_ray_head(
+    address: tuple[str, int],
+    own_process: "subprocess.Popen[str] | None",
+    log: "_JobLog",
+) -> bool:
+    """Wait until the head's port accepts connections, or ``own_process`` exits."""
+    deadline_s = time.monotonic() + RAY_HEAD_WAIT_S
+    while not _accepts_connections(address):
+        if own_process is not None and own_process.poll() is not None:
+            return False
+        if time.monotonic() > deadline_s:
+            log.write(
+                f"compute-jobs: Ray's head at {address[0]}:{address[1]} did not come "
+                f"up within {RAY_HEAD_WAIT_S:.0f} s; check rank 0's log.\n"
+            )
+            return False
         time.sleep(RAY_POLL_INTERVAL_S)
-    _run_command("ray stop", environ, log)
-    return 0
+    return True
 
 
 def _accepts_connections(address: tuple[str, int]) -> bool:

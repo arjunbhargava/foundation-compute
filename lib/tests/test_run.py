@@ -4,6 +4,7 @@ import socket
 import stat
 import threading
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,7 @@ import jsonschema
 import pytest
 from boto3.exceptions import S3UploadFailedError
 from compute_jobs.archive import ArchiveWriter
-from compute_jobs.run import RAY_PORT, Job, ProgressPublisher, main, run_job
+from compute_jobs.run import Job, ProgressPublisher, main, run_job
 from compute_jobs.schemas import load_schema
 from mypy_boto3_s3 import S3Client
 from s3_helpers import BUCKET, MACHINE_ID, object_keys, read_object
@@ -204,15 +205,19 @@ SEARCH_RANK_1 = {**SEARCH_RANK_0, "SKYPILOT_NODE_RANK": "1"}
 
 
 def fake_ray(directory: Path) -> dict[str, str]:
-    """Return an environment whose ``ray`` appends its arguments to ``$RAY_CALLS``.
+    """Return an environment whose ``ray`` records its arguments in ``$RAY_CALLS``.
 
-    It exits with ``$RAY_START_EXIT`` when that is set and the first argument is ``start``.
+    Like ``ray start --block``, it then waits until SIGTERM, and records
+    ``terminated``. It exits with ``$RAY_START_EXIT`` at once when that is set.
     """
     directory.mkdir()
     program = directory / "ray"
     program.write_text(
-        '#!/bin/sh\necho "$@" >> "$RAY_CALLS"\n'
-        '[ "$1" = start ] && [ -n "$RAY_START_EXIT" ] && exit "$RAY_START_EXIT"\nexit 0\n'
+        "#!/bin/sh\n"
+        "trap 'echo terminated >> \"$RAY_CALLS\"; exit 0' TERM\n"
+        'echo "$@" >> "$RAY_CALLS"\n'
+        '[ -n "$RAY_START_EXIT" ] && exit "$RAY_START_EXIT"\n'
+        "sleep 600 & wait $!\n"
     )
     program.chmod(program.stat().st_mode | stat.S_IEXEC)
     return {"PATH": f"{directory}:{SYSTEM_PATH}", "RAY_CALLS": str(directory / "calls")}
@@ -223,46 +228,65 @@ def ray_calls(environ: dict[str, str]) -> list[str]:
     return calls.read_text().splitlines() if calls.exists() else []
 
 
+def wait_for_ray_calls(environ: dict[str, str], count: int) -> None:
+    for _ in range(200):
+        if len(ray_calls(environ)) >= count:
+            return
+        time.sleep(0.05)
+
+
+@pytest.fixture
+def head_port(monkeypatch: pytest.MonkeyPatch) -> Iterator[socket.socket]:
+    """A bound socket that stands in for rank 0's Ray at ``RAY_PORT``, once it listens."""
+    head = socket.socket()
+    head.bind(("127.0.0.1", 0))
+    monkeypatch.setattr("compute_jobs.run.RAY_PORT", head.getsockname()[1])
+    monkeypatch.setattr("compute_jobs.run.RAY_POLL_INTERVAL_S", 0.05)
+    yield head
+    head.close()
+
+
 def test_search_rank_0_runs_the_command_between_starting_and_stopping_ray(
-    s3: S3Client, tmp_path: Path
+    s3: S3Client, tmp_path: Path, head_port: socket.socket
 ) -> None:
+    port = head_port.getsockname()[1]
     environ = {**fake_ray(tmp_path / "bin"), **SEARCH_RANK_0}
+    listen_once_ray_has_started = threading.Thread(
+        target=lambda: (wait_for_ray_calls(environ, 1), head_port.listen())
+    )
+    listen_once_ray_has_started.start()
     job = make_job('echo "the command" >> "$RAY_CALLS"', "search")
 
     assert run(s3, tmp_path, job, environ) == 0
 
     assert ray_calls(environ) == [
         (
-            f"start --head --port={RAY_PORT} --include-dashboard=false "
-            "--disable-usage-stats --node-ip-address=127.0.0.1"
+            f"start --head --port={port} --include-dashboard=false "
+            "--disable-usage-stats --node-ip-address=127.0.0.1 --block"
         ),
         "the command",
-        "stop",
+        "terminated",
     ]
     assert run_record(s3)["ran_command"] is True
 
 
 def test_search_rank_0_does_not_run_the_command_when_ray_will_not_start(
-    s3: S3Client, tmp_path: Path
+    s3: S3Client, tmp_path: Path, head_port: socket.socket
 ) -> None:
     environ = {**fake_ray(tmp_path / "bin"), **SEARCH_RANK_0, "RAY_START_EXIT": "3"}
     job = make_job('echo "the command" >> "$RAY_CALLS"', "search")
 
     assert run(s3, tmp_path, job, environ) == 3
 
-    assert ray_calls(environ) == [
-        c for c in ray_calls(environ) if c.startswith("start")
-    ]
+    [only_call] = ray_calls(environ)
+    assert only_call.startswith("start --head")
     assert run_record(s3)["state"] == "failed"
 
 
 def test_search_rank_1_joins_rank_0s_ray_and_exits_0_when_the_head_port_closes(
-    s3: S3Client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    s3: S3Client, tmp_path: Path, head_port: socket.socket
 ) -> None:
-    head = socket.create_server(("127.0.0.1", 0))
-    port = head.getsockname()[1]
-    monkeypatch.setattr("compute_jobs.run.RAY_PORT", port)
-    monkeypatch.setattr("compute_jobs.run.RAY_POLL_INTERVAL_S", 0.05)
+    port = head_port.getsockname()[1]
     environ = {**fake_ray(tmp_path / "bin"), **SEARCH_RANK_1}
     exit_codes: list[int] = []
     worker = threading.Thread(
@@ -271,43 +295,38 @@ def test_search_rank_1_joins_rank_0s_ray_and_exits_0_when_the_head_port_closes(
         )
     )
 
+    head_port.listen()
     worker.start()
-    for _ in range(200):
-        if ray_calls(environ):
-            break
-        time.sleep(0.05)
+    wait_for_ray_calls(environ, 1)
     assert worker.is_alive()
-    head.close()
+    head_port.close()
     worker.join(timeout=10)
 
     assert exit_codes == [0]
     assert ray_calls(environ) == [
-        f"start --address=127.0.0.1:{port} --disable-usage-stats",
-        "stop",
+        f"start --address=127.0.0.1:{port} --disable-usage-stats --block",
+        "terminated",
     ]
     record = run_record(s3)
     assert (record["state"], record["ran_command"]) == ("succeeded", False)
 
 
 def test_search_rank_1_fails_when_it_cannot_join_ray(
-    s3: S3Client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    s3: S3Client, tmp_path: Path, head_port: socket.socket
 ) -> None:
-    head = socket.create_server(("127.0.0.1", 0))
-    monkeypatch.setattr("compute_jobs.run.RAY_PORT", head.getsockname()[1])
+    head_port.listen()
     environ = {**fake_ray(tmp_path / "bin"), **SEARCH_RANK_1, "RAY_START_EXIT": "3"}
 
     assert run(s3, tmp_path, make_job("false", "search"), environ) == 3
-    head.close()
 
 
 def test_search_rank_1_fails_when_the_head_never_comes_up(
-    s3: S3Client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    s3: S3Client,
+    tmp_path: Path,
+    head_port: socket.socket,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    unused_port = socket.create_server(("127.0.0.1", 0))
-    monkeypatch.setattr("compute_jobs.run.RAY_PORT", unused_port.getsockname()[1])
-    unused_port.close()
     monkeypatch.setattr("compute_jobs.run.RAY_HEAD_WAIT_S", 0.2)
-    monkeypatch.setattr("compute_jobs.run.RAY_POLL_INTERVAL_S", 0.05)
     environ = {**fake_ray(tmp_path / "bin"), **SEARCH_RANK_1}
 
     assert run(s3, tmp_path, make_job("false", "search"), environ) == 1
