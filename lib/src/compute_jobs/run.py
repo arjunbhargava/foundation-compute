@@ -20,9 +20,6 @@ Variables the command sees, besides the caller's own:
     The directory the server mounts on ``checkpoints/<job name>/``.
 ``COMPUTE_JOB_SEED``
     The job file's seed; unset when the job has none.
-``COMPUTE_JOB_SETTINGS``
-    The job file's ``settings`` as JSON; unset when the job has none. The
-    page names no variable for it, so this name is proposed.
 ``COMPUTE_JOB_SMOKE``
     ``0``, unless the caller set it, as a dry run does.
 
@@ -83,7 +80,6 @@ class Job:
         command: The job file's command, run by bash.
         checkpoint_dir: The path of the mounted checkpoint directory.
         seed: The job file's seed, or None.
-        settings_json: The job file's ``settings`` as a JSON object, or None.
         image_cuda_version: The CUDA version the image needs, such as
             ``12.8``, or None to skip the driver check.
     """
@@ -93,7 +89,6 @@ class Job:
     command: str
     checkpoint_dir: str
     seed: int | None = None
-    settings_json: str | None = None
     image_cuda_version: str | None = None
 
 
@@ -116,7 +111,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         command=arguments.command,
         checkpoint_dir=arguments.checkpoint_dir,
         seed=arguments.seed,
-        settings_json=arguments.settings_json,
         image_cuda_version=arguments.image_cuda_version,
     )
 
@@ -218,7 +212,6 @@ def _run_and_archive(
         started_at=_now(),
         command=job.command,
         seed=job.seed,
-        settings=None if job.settings_json is None else json.loads(job.settings_json),
         image_cuda_version=job.image_cuda_version,
     )
     try:
@@ -294,8 +287,6 @@ def _command_environment(
     }
     if job.seed is not None:
         command_environment["COMPUTE_JOB_SEED"] = str(job.seed)
-    if job.settings_json is not None:
-        command_environment["COMPUTE_JOB_SETTINGS"] = job.settings_json
     return command_environment
 
 
@@ -399,7 +390,8 @@ class _ChangedFileUploader:
     def upload_if_due(self, now_s: float, final: bool = False) -> bool:
         """Upload if the file changed since the last upload and the interval has passed.
 
-        ``final`` ignores the interval. Returns whether it uploaded.
+        ``final`` ignores the interval. A failed upload is retried on the next call.
+        Returns whether it uploaded.
         """
         if not self._path.exists():
             return False
@@ -412,13 +404,14 @@ class _ChangedFileUploader:
             return False
 
         self._last_upload_s = now_s
-        self._uploaded_fingerprint = fingerprint
-        _best_effort(
+        uploaded = _best_effort(
             f"upload {self._name}",
             lambda: self._archive.upload_file(self._path, self._name),
             self._write_log,
         )
-        return True
+        if uploaded:
+            self._uploaded_fingerprint = fingerprint
+        return uploaded
 
 
 class ProgressPublisher:
@@ -482,11 +475,13 @@ def _best_effort(
     description: str,
     action: Callable[[], object],
     write_log: Callable[[str], object],
-) -> None:
+) -> bool:
     try:
         action()
     except (BotoCoreError, ClientError, S3UploadFailedError, OSError) as error:
         write_log(f"compute-jobs: could not {description}: {error}\n")
+        return False
+    return True
 
 
 def _content_of(path: Path) -> bytes:
@@ -509,16 +504,6 @@ def _cuda_version(text: str) -> str:
     return text
 
 
-def _json_object(text: str) -> str:
-    try:
-        parsed = json.loads(text)
-    except ValueError as error:
-        raise argparse.ArgumentTypeError(f"{text!r} is not JSON: {error}") from error
-    if not isinstance(parsed, dict):
-        raise argparse.ArgumentTypeError(f"{text!r} is not a JSON object")
-    return text
-
-
 def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -538,11 +523,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--checkpoint-dir", required=True, help="the mounted checkpoint directory"
     )
     parser.add_argument("--seed", type=int, help="the job file's seed")
-    parser.add_argument(
-        "--settings-json",
-        type=_json_object,
-        help="the job file's settings, as a JSON object",
-    )
     parser.add_argument(
         "--image-cuda-version",
         type=_cuda_version,

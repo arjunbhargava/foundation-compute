@@ -21,7 +21,6 @@ def make_job(
     command: str,
     kind: str = "single",
     seed: int | None = None,
-    settings_json: str | None = None,
     image_cuda_version: str | None = None,
 ) -> Job:
     return Job(
@@ -30,7 +29,6 @@ def make_job(
         command,
         "/mnt/checkpoints",
         seed,
-        settings_json,
         image_cuda_version,
     )
 
@@ -67,9 +65,8 @@ def run_record(s3: S3Client) -> dict[str, object]:
 
 SEEN_KEY = f"machines/{MACHINE_ID}/output/seen.txt"
 SHOW_VARIABLES = (
-    'printf "%s|%s|%s|%s|%s|%s|%s|%s|%s" "$NNODES" "$NODE_RANK" "$MASTER_ADDR" "$MASTER_PORT"'
+    'printf "%s|%s|%s|%s|%s|%s|%s|%s" "$NNODES" "$NODE_RANK" "$MASTER_ADDR" "$MASTER_PORT"'
     ' "$GPUS_PER_NODE" "$COMPUTE_JOB_SEED" "$COMPUTE_JOB_SMOKE" "$COMPUTE_JOB_CHECKPOINT_DIR"'
-    ' "${COMPUTE_JOB_SETTINGS-unset}"'
     ' > "$COMPUTE_JOB_OUTPUT_DIR/seen.txt"'
 )
 
@@ -141,21 +138,6 @@ def test_a_driver_with_the_images_cuda_or_newer_or_no_driver_runs_the_command(
     assert run_record(s3).get("driver_cuda_version") == driver_cuda_version
 
 
-def test_the_jobs_settings_reach_the_command_as_json_and_the_run_record(
-    s3: S3Client, tmp_path: Path
-) -> None:
-    command = (
-        'printf "%s" "$COMPUTE_JOB_SETTINGS" > "$COMPUTE_JOB_OUTPUT_DIR/settings.txt"'
-    )
-    settings_json = '{"population": 10000, "elite": [1, 2]}'
-
-    run(s3, tmp_path, make_job(command, settings_json=settings_json))
-
-    settings_key = f"machines/{MACHINE_ID}/output/settings.txt"
-    assert read_object(s3, settings_key).decode() == settings_json
-    assert run_record(s3)["settings"] == {"population": 10000, "elite": [1, 2]}
-
-
 def test_ac12_one_node_gets_the_distributed_variables_with_one_node_defaults(
     s3: S3Client, tmp_path: Path
 ) -> None:
@@ -163,7 +145,7 @@ def test_ac12_one_node_gets_the_distributed_variables_with_one_node_defaults(
 
     assert (
         read_object(s3, SEEN_KEY).decode()
-        == "1|0|127.0.0.1|29500|0|1234|0|/mnt/checkpoints|unset"
+        == "1|0|127.0.0.1|29500|0|1234|0|/mnt/checkpoints"
     )
 
 
@@ -180,8 +162,7 @@ def test_ac12_two_nodes_get_skypilots_rank_master_address_and_gpu_count(
     run(s3, tmp_path, make_job(SHOW_VARIABLES, kind="multi-node"), skypilot)
 
     assert (
-        read_object(s3, SEEN_KEY).decode()
-        == "2|1|10.0.0.5|29500|8||0|/mnt/checkpoints|unset"
+        read_object(s3, SEEN_KEY).decode() == "2|1|10.0.0.5|29500|8||0|/mnt/checkpoints"
     )
 
 
@@ -294,6 +275,35 @@ def test_ac9_progress_is_uploaded_at_most_every_30_seconds(
     assert puts.count(progress_key) == 2
 
 
+def test_ac9_a_failed_progress_upload_is_retried_and_made_again_at_the_end(
+    s3: S3Client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    progress_file = tmp_path / "progress.json"
+    progress_file.write_text(json.dumps({"schema": 1, "step": 1, "updated_at": "t"}))
+    writer = ArchiveWriter(s3, BUCKET, JOB_NAME, MACHINE_ID)
+    lines: list[str] = []
+    attempts: list[str] = []
+    real_upload = ArchiveWriter.upload_file
+
+    def flaky_upload(self: ArchiveWriter, path: Path, name: str) -> None:
+        attempts.append(name)
+        if len(attempts) == 1:
+            raise S3UploadFailedError("the connection dropped")
+        real_upload(self, path, name)
+
+    monkeypatch.setattr(ArchiveWriter, "upload_file", flaky_upload)
+    publisher = ProgressPublisher(progress_file, writer, lines.append)
+
+    publisher.publish_if_due(1000.0)
+    publisher.publish_if_due(1001.0, final=True)
+
+    assert len(attempts) == 2
+    assert "could not upload progress.json" in lines[0]
+    assert (
+        json.loads(read_object(s3, f"machines/{MACHINE_ID}/progress.json"))["step"] == 1
+    )
+
+
 def test_ac9_progress_is_logged_as_a_compute_progress_line_at_most_every_60_seconds(
     s3: S3Client, tmp_path: Path
 ) -> None:
@@ -356,27 +366,16 @@ def test_ac9_progress_is_logged_while_the_command_is_still_running(
     assert log.index("COMPUTE_PROGRESS") < log.index("after the pause")
 
 
-@pytest.mark.parametrize(
-    ("option", "value", "message"),
-    [
-        ("--settings-json", "[1, 2]", "'[1, 2]' is not a JSON object"),
-        (
-            "--image-cuda-version",
-            "twelve",
-            "'twelve' is not a CUDA version such as 12.8",
-        ),
-    ],
-)
-def test_main_refuses_an_option_value_of_the_wrong_kind(
-    capsys: pytest.CaptureFixture[str], option: str, value: str, message: str
+def test_main_refuses_a_cuda_version_that_is_not_a_version(
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     arguments = [
         "--job-name", JOB_NAME, "--kind", "single", "--command", "true", "--bucket", BUCKET,
-        "--checkpoint-dir", "/c", option, value,
+        "--checkpoint-dir", "/c", "--image-cuda-version", "twelve",
     ]  # fmt: skip
 
     with pytest.raises(SystemExit) as raised:
         main(arguments)
 
     assert raised.value.code == 2
-    assert message in capsys.readouterr().err
+    assert "'twelve' is not a CUDA version such as 12.8" in capsys.readouterr().err
