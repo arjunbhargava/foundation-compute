@@ -68,9 +68,11 @@ class Profile(TypedDict):
 
 
 class SpendLimits(TypedDict):
-    """The spend limits the admin policy enforces when a job is launched.
+    """The default spend limits the admin policy enforces at launch.
 
-    Both are in USD at on-demand list price, > 0, and set by the owner.
+    Both are in USD at on-demand list price and > 0, with
+    ``daily_cap_usd`` >= ``max_burn_usd_per_hour``. The owner overrides
+    either under ``plugins.compute_jobs`` in the server's config.
 
     Attributes:
         max_burn_usd_per_hour: The most the running jobs and the new one
@@ -88,7 +90,7 @@ class Limits(TypedDict):
 
     Attributes:
         schema_version: 1, the only major this release reads.
-        spend: The spend limits.
+        spend: The default spend limits.
         quotas: Each quota group's applied EC2 vCPU quota, by group name; 0
             where the quota isn't known yet.
         profiles: Each profile, by the name a job file uses.
@@ -129,9 +131,9 @@ def parse_limits(yaml_text: str) -> Limits:
     Raises:
         InvalidLimitsError: The text isn't YAML; doesn't match the schema,
             such as a missing or unknown field, GPUs without an accelerator,
-            or spot allowed without a spot quota group; names a quota group
-            that ``quotas`` lacks; or lists an instance type twice in one
-            profile.
+            or spot allowed without a spot quota group; sets a daily cap
+            below the hourly burn limit; names a quota group that ``quotas``
+            lacks; or lists an instance type twice in one profile.
 
     Example:
         >>> try:
@@ -160,6 +162,13 @@ def parse_limits(yaml_text: str) -> Limits:
         ) from error
 
     limits = cast(Limits, document)
+    spend = limits["spend"]
+    if spend["daily_cap_usd"] < spend["max_burn_usd_per_hour"]:
+        raise InvalidLimitsError(
+            f"limits.yaml's spend.daily_cap_usd {spend['daily_cap_usd']} is below "
+            f"spend.max_burn_usd_per_hour {spend['max_burn_usd_per_hour']}; "
+            "make the daily cap at least the hourly burn limit"
+        )
     for profile_name, profile in limits["profiles"].items():
         instance_types = [entry["instance_type"] for entry in profile["entries"]]
         if len(set(instance_types)) < len(instance_types):

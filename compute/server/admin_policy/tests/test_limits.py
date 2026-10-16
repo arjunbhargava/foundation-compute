@@ -179,6 +179,10 @@ def duplicate_gpu_small_entry() -> str:
             "spend.daily_cap_usd: -1 is less than or equal to",
         ),
         (
+            edit_spend({"max_burn_usd_per_hour": 125, "daily_cap_usd": 100}),
+            "spend.daily_cap_usd 100 is below spend.max_burn_usd_per_hour 125",
+        ),
+        (
             edit_spend(
                 {
                     "max_burn_usd_per_hour": 125,

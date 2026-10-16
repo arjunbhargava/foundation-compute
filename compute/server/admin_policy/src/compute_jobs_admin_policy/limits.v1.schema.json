@@ -8,7 +8,7 @@
   "properties": {
     "schema_version": { "const": 1 },
     "spend": {
-      "description": "The spend limits the admin policy enforces at launch, in USD at on-demand list price.",
+      "description": "The default spend limits the admin policy enforces at launch, in USD at on-demand list price; the server's plugins.compute_jobs config overrides them.",
       "type": "object",
       "required": ["max_burn_usd_per_hour", "daily_cap_usd"],
       "additionalProperties": false,

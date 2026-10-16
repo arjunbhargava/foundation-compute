@@ -12,12 +12,16 @@
 # but never down, so a job's ceiling never understates. A spot entry is priced
 # at its on-demand price, which bounds what spot costs.
 schema_version: 1
-spend: # the owner's to set; docs/compute-jobs.md, "Spend limits", says why
+# The starting spend limits, and the defaults whenever the owner hasn't set
+# plugins.compute_jobs on the server's dashboard config page, which overrides
+# them on the next launch with no release. docs/compute-jobs.md, "Spend
+# limits", says how. daily_cap_usd must be >= max_burn_usd_per_hour.
+spend:
   # The most the running jobs and the new one may cost an hour at list price:
   # two 2-node gpu-sim jobs ($120.52), one gpu-small and one 3-node cpu job.
   max_burn_usd_per_hour: 125
   # The most the ceilings of the jobs launched in any 24 hours may add up to:
-  # 24 x max_burn_usd_per_hour. Keep it equal to the template's decision D8.
+  # 24 x max_burn_usd_per_hour.
   daily_cap_usd: 3000
 quotas: # the account's applied vCPU quotas in us-east-1, read 2026-10-15
   standard_on_demand: 1152 # Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances
