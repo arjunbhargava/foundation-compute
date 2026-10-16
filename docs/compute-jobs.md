@@ -292,7 +292,7 @@ it).
 
 ```yaml
 schema_version: 1
-spend:                        # the owner's to set; see Spend limits
+spend:                        # starting values and defaults; see Spend limits
   max_burn_usd_per_hour: 125
   daily_cap_usd: 3000
 quotas:                       # applied vCPU quotas in us-east-1; information only
@@ -358,14 +358,16 @@ overstates what the negotiated rates bill:
 | Layer | What it limits | Where it runs | What it can't stop |
 |---|---|---|---|
 | 1. Per job | The job's ceiling must not exceed its `budget_usd` | Admin policy, on every launch; `dry-run` first | Provisioning and setup, about 10 minutes per node per attempt (unverified); a spot job's recoveries, each of which restarts its `timeout` |
-| 2. Burn rate and daily sum | The running jobs' burn rate, and the ceilings launched in the last 24 hours, against `spend:` in `limits.yaml` | Admin policy, on every launch | Launches that bypass the server, such as the owner's own AWS credentials; a spot job that recovers and runs past the time its ledger row stops counting |
+| 2. Burn rate and daily sum | The running jobs' burn rate, and the ceilings launched in the last 24 hours, against the [effective spend limits](#the-spend-settings) | Admin policy, on every launch | Launches that bypass the server, such as the owner's own AWS credentials; a spot job that recovers and runs past the time its ledger row stops counting |
 | 3. AWS Budgets action | At 100% of the daily budget's actual cost, applies `compute-jobs-deny-launch` to the server's role `compute-jobs-launcher` | AWS | Any running machine: it stops new launches, and the managed jobs' recoveries, but terminates nothing; AWS's cost data lags by up to a day |
-| 4. Report | Nothing: `compute-server:status` prints the burn rate, the last 24 hours' ceilings, and the quota-based ceiling | The owner's laptop | Anything; it never fails on spend |
+| 4. Report | Nothing: `compute-server:status` prints the effective spend limits and their source, the burn rate, the last 24 hours' ceilings, and the quota-based ceiling | The owner's laptop | Anything; it never fails on spend |
 
 ### The spend settings
 
-`spend:` in `limits.yaml` holds two numbers, both the owner's to set. The
-values shipped are a proposal:
+The admin policy enforces two numbers, the **effective spend limits**. Each
+is the owner's value on the server's dashboard config page if set there, and
+otherwise `limits.yaml`'s `spend:` default. The starting values, accepted by
+the owner on 2026-10-16, are the defaults:
 
 - `max_burn_usd_per_hour: 125`: the most the running jobs and the new one may
   cost an hour. The dearest job the enabled profiles allow is a 2-node
@@ -376,9 +378,8 @@ values shipped are a proposal:
   hours may add up to, which is 24 × $125. It seldom binds before the burn
   rate for jobs that run their full time; it binds on relaunches, because a
   job that ends early still counts its whole ceiling for 24 hours. Two
-  24-hour, 2-node
-  `gpu-sim` launches ($1,446.30 each) use most of a day; an agent fits more
-  launches by asking for a shorter `max_runtime_minutes`.
+  24-hour, 2-node `gpu-sim` launches ($1,446.30 each) use most of a day; an
+  agent fits more launches by asking for a shorter `max_runtime_minutes`.
 
 Enabling `gpu-sim-large` (4 nodes, $120.52 an hour) or `gpu-train-large` (2
 p5.48xlarge nodes, $110.08 an hour) leaves room for one such job beside small
@@ -386,14 +387,93 @@ ones, so the owner revisits both numbers when enabling either.
 
 The template's `compute-cost` rule, decision D8 (a cap of $10,000 a day on all
 agents' compute, in the template repository), is the agents' rule, which
-they apply before launching. This repository's `spend.daily_cap_usd` is the
-cap the admin policy enforces. The owner keeps the two equal; this repository
-never edits D8. Until the owner changes one of them they differ, and the
-lower, `spend.daily_cap_usd`, is the one that binds.
+they apply before launching. The effective `daily_cap_usd` is the cap the
+admin policy enforces. The owner keeps the two equal; this repository never
+edits D8. Until the owner changes one of them they differ, and the lower
+binds.
 
-The AWS daily budget (step 9 of [Setup](#setup-for-the-owner)) is set to
-`spend.daily_cap_usd` in the console, by the owner. The server's $15 a day
-counts against it too, so it acts slightly early.
+### Changing the spend limits
+
+The owner changes either limit on the dashboard's config page, the page
+step 6 of [Setup](#setup-for-the-owner) already uses, by adding:
+
+```yaml
+plugins:
+  compute_jobs:
+    max_burn_usd_per_hour: 150
+    daily_cap_usd: 3600
+```
+
+A key left out keeps its `limits.yaml` default; deleting the block restores
+both. This needs SkyPilot's `admin` role, which the owner has, and no AWS
+privilege; the dashboard is a web page, so a phone browser works
+(unverified on a phone). No release or restart is needed: the change applies
+to the next launch. These facts are from SkyPilot 0.14.0's source:
+
+- **SkyPilot accepts the keys under `plugins:` only.** Its config schema
+  refuses unknown top-level keys and lets `plugins:` hold any
+  (`get_config_schema` in `sky/utils/schemas.py`). Running its validator on
+  `compute_jobs:` at the top level fails with "Found unsupported field
+  'compute_jobs'"; under `plugins:` it passes.
+- **The dashboard saves the whole config into the server's database**, in
+  the table `config_yaml` under the key `api_server_config`
+  (`update_config` in `sky/workspaces/core.py`, which validates against the
+  schema, then `update_api_server_config_no_lock` in
+  `sky/skypilot_config.py`, line 1520). Role `user`, the agents' token,
+  can't save it (`_DEFAULT_USER_BLOCKLIST` in `sky/users/rbac.py`).
+- **Every request reloads that config before it runs**
+  (`reload_for_new_request` in `sky/server/common.py`, called from
+  `sky/server/requests/executor.py`, line 745).
+
+**Where the policy reads it.** Not from `request.skypilot_config`. Each
+request's config is the server's merged with the client's own SkyPilot
+config, and the server ignores only the keys in `SKIPPED_CLIENT_OVERRIDE_KEYS`
+(`sky/skylet/constants.py`, line 694), which doesn't include `plugins`.
+Merging a client value of 99999 over the server's 125 with SkyPilot's own
+code gives 99999, so a client could raise its own limit. The policy instead
+reads `plugins.compute_jobs` from the saved row in `config_yaml`, in the
+same transaction and database as the [launch ledger](#the-admission-check).
+That table's name and key are internal to SkyPilot, so a test pins them to
+0.14.0 and fails on an upgrade that changes them. A launch whose own config
+sets `plugins.compute_jobs` to anything other than the saved value is
+refused, naming the key.
+
+**A bad value is refused.** SkyPilot's schema doesn't check keys under
+`plugins:`, so the dashboard saves any value. The policy checks the
+effective limits on every launch: each must be a number above 0, not a
+boolean, and `daily_cap_usd` must be at least `max_burn_usd_per_hour`.
+Otherwise it refuses every launch until the owner fixes the value, with
+`kind=rejected` and a message such as:
+
+```text
+kind=rejected
+spend limit settings are invalid: plugins.compute_jobs.daily_cap_usd is 100,
+below max_burn_usd_per_hour 125. The owner fixes it on the dashboard's config
+page; nothing was launched.
+```
+
+`parse_limits` applies the same two checks to `limits.yaml`'s defaults.
+`compute-server:status` prints each effective value with its source,
+`dashboard` or `limits.yaml default`, and flags an invalid one.
+
+**Fallback**, if the policy can't read `config_yaml` on the real server: the
+setting moves into the ledger's own database, in a table
+`compute_jobs_settings`, with `limits.yaml`'s `spend:` as the defaults. An
+admin task, `MISE_ENV=admin mise run compute-server:spend`, shows the
+effective values, or sets them with `--burn <USD per hour>` and `--daily
+<USD>`, applying the same checks, and reminds whoever runs it to keep the AWS
+daily budget at least as high. It reaches the private database through
+`kubectl exec` in the server's pod, so it needs the AWS admin profile and a
+laptop: the owner, who lacks AWS privileges, would ask the person who has
+them, which is why it is the fallback.
+
+**The AWS daily budget** (step 9 of [Setup](#setup-for-the-owner)) is set
+once, by a person with AWS privileges, and isn't changed with the spend
+limits. Set it at least as high as the highest `daily_cap_usd` the owner
+expects to set, plus the server's $15 a day. If the effective
+`daily_cap_usd` is raised above it, the budget action blocks launches early
+until that person raises it; `compute-server:status` prints both numbers
+side by side.
 
 ### The admission check
 
@@ -425,13 +505,14 @@ requires, to the policy's dependencies.
 
 **The rule.** In one transaction holding a PostgreSQL advisory lock
 (`pg_advisory_xact_lock`), so that two launches can't both pass on the same
-reading, with `now` in Unix seconds:
+reading, with `now` in Unix seconds, and the effective limits read in the
+same transaction ([Changing the spend limits](#changing-the-spend-limits)):
 
 ```text
 running_burn_usd_per_hour = sum of burn_usd_per_hour over rows with counts_until > now
 recent_ceilings_usd       = sum of ceiling_usd over rows with admitted_at > now - 86400
-reject if running_burn_usd_per_hour + this job's burn > spend.max_burn_usd_per_hour
-reject if recent_ceilings_usd + this job's ceiling   > spend.daily_cap_usd
+reject if running_burn_usd_per_hour + this job's burn > max_burn_usd_per_hour
+reject if recent_ceilings_usd + this job's ceiling   > daily_cap_usd
 otherwise insert this job's row and accept
 ```
 
@@ -442,11 +523,11 @@ policy. The message gives the numbers and what to do:
 ```text
 kind=rejected
 spend limit: running jobs cost $120.52 an hour; this job's $60.26 would make it
-$180.79, over spend.max_burn_usd_per_hour $125. Wait for a job to end, or ask
-the owner to raise the limit.
+$180.79, over max_burn_usd_per_hour $125 (limits.yaml default). Wait for a
+job to end, or ask the owner to raise the limit.
 ```
 
-The daily refusal names the 24-hour sum, `spend.daily_cap_usd`, and the time,
+The daily refusal names the 24-hour sum, the effective `daily_cap_usd`, and the time,
 in UTC, when the oldest counted launch leaves the window. If the ledger can't
 be read or written, the policy rejects the launch, naming the database error.
 
@@ -964,7 +1045,8 @@ with the template ([Proposed v0.1](#proposed-v01-versioned-formats)).
   `limits.yaml`'s entries. It also prints, as information that fails
   nothing, the burn rate and the last 24 hours' ceilings as the launch ledger
   counts them, read inside the server's pod with `kubectl exec` since the
-  database is private, beside `spend:`, and the
+  database is private, beside the effective spend limits with their source
+  and the AWS daily budget's amount, and the
   [quota-based ceiling](#the-quota-based-ceiling) table.
 - Only a person runs them. The template's `compute-cost` rule update says so
   for agents.
@@ -1008,7 +1090,8 @@ PR 13.
    that profiles use. The three spot quotas, "All G and VT Spot Instance
    Requests", "All P Spot Instance Requests", and "All Standard (A, C, D, H,
    I, M, R, T, Z) Spot Instance Requests", are placeholders, 0 in
-   `limits.yaml`, until you read them and replace the placeholders:
+   `limits.yaml`, until a person with AWS access reads them and replaces
+   the placeholders:
    <https://console.aws.amazon.com/servicequotas/home/services/ec2/quotas>.
 3. Pick the server's host name, such as `skypilot.<domain>`, and create a
    Route 53 hosted zone for the domain, registering one (about $15 a year) if
@@ -1040,31 +1123,56 @@ PR 13.
    `COMPUTE_JOBS_AWS_REGION` (`us-east-1`):
    <https://github.com/arjunbhargava/foundation-compute/settings/environments/new>.
    Then rerun the image workflow for the latest tag, from the Actions tab.
-9. Create a daily cost budget, `compute-jobs-daily`, of `spend.daily_cap_usd`
-   ($3,000 as shipped), with email alerts at 50% and 80%, and an action at
-   100% of actual cost that applies `compute-jobs-deny-launch` to
-   `compute-jobs-launcher`:
+9. A person with AWS privileges creates a daily cost budget,
+   `compute-jobs-daily`, once, at least as high as the highest daily cap you
+   expect to set plus $15 ([Changing the spend limits](#changing-the-spend-limits)),
+   with email alerts at 50% and 80%, and an action at 100% of actual cost
+   that applies `compute-jobs-deny-launch` to `compute-jobs-launcher`:
    <https://console.aws.amazon.com/costmanagement/home#/budgets/create>.
-   That AWS accepts an action on a daily budget is unverified. When you
-   change `spend.daily_cap_usd`, change this number in the console too. The
-   action stops new launches but no running machine.
+   That AWS accepts an action on a daily budget is unverified. The action
+   stops new launches but no running machine.
 10. Run `MISE_ENV=admin mise run compute-server:status`; it must pass.
 11. If Cursor's agent network allowlist is on, add the server's host name and
     `<bucket>.s3.us-east-1.amazonaws.com`.
 12. Approve the spike's budget in PR 15, then follow
     [How the owner verifies](#how-the-owner-verifies).
 
+Any time, from a phone, with no AWS access:
+
+13. Change the spend limit:
+    1. Open the dashboard URL from step 5 and sign in as `admin`.
+    2. Open the config page.
+    3. Add or edit this block, with your numbers, in US dollars; the daily
+       cap must be at least the hourly limit:
+
+       ```yaml
+       plugins:
+         compute_jobs:
+           max_burn_usd_per_hour: 125
+           daily_cap_usd: 3000
+       ```
+
+    4. Save. The next launch uses the new numbers; delete the block to go
+       back to `limits.yaml`'s defaults.
+    5. If the daily cap is now above the AWS daily budget from step 9, ask the
+       person with AWS access to raise the budget. If it differs from the
+       template's D8, change D8 to match.
+
+    A bad value, such as a daily cap below the hourly limit, makes every
+    launch fail with `spend limit settings are invalid`, naming the key, until
+    you fix it here ([Changing the spend limits](#changing-the-spend-limits)).
+
 Optional, later, only when a project needs a disabled profile or more nodes.
 The applied quotas already fit each of these, so none needs a quota request:
-edit `limits.yaml`, check that `spend:` still admits the job
+edit `limits.yaml`, check that the effective spend limits still admit the job
 ([The spend settings](#the-spend-settings)), release, and rerun step 10.
 
-13. For `gpu-sim-large`, enable its entry. Its 4 × 192 vCPUs fill the whole
+14. For `gpu-sim-large`, enable its entry. Its 4 × 192 vCPUs fill the whole
     G and VT on-demand quota of 768, so no other G job runs beside it.
-14. For `gpu-train-large`, enable its entries. The P quota of 768 fits 4
+15. For `gpu-train-large`, enable its entries. The P quota of 768 fits 4
     p5.48xlarge nodes. Capacity is separate from quota: on-demand P
     capacity is often unavailable even with quota.
-15. For a `cpu` profile with more nodes, raise its `max_nodes`; the Standard
+16. For a `cpu` profile with more nodes, raise its `max_nodes`; the Standard
     quota of 1,152 fits many more beside the server's node.
 
 ## Cost
@@ -1088,9 +1196,9 @@ unknown amount, so each is a ceiling.
   10 GB per image and 10 images kept, at most about $10 a month.
 - **Spike**: about $3.50 a full pass, under the $10 target
   ([below](#the-spike)).
-- **Worst case**, through the server: `spend.max_burn_usd_per_hour` ($125 an
-  hour as shipped) at once, and launches whose ceilings add up to
-  `spend.daily_cap_usd` ($3,000) in any 24 hours, plus provisioning time
+- **Worst case**, through the server: the effective `max_burn_usd_per_hour`
+  ($125 an hour to start) at once, and launches whose ceilings add up to
+  the effective `daily_cap_usd` ($3,000) in any 24 hours, plus provisioning time
   and spot recoveries beyond each `timeout`
   ([Spend limits](#spend-limits)). Bypassing the server, for example with
   the owner's own AWS credentials, only the quotas bound it: $415.37 an
@@ -1111,7 +1219,7 @@ admin policy, and provisioning run on Opus; the rest on Sonnet. A PR marked
 | 2 | `compute-jobs` with its four commands, configuration checks, and the failure kinds with their top-level handler | Sonnet | yes: failure kinds, v0.1 pending the template | AC 1; AC 2 for argument errors; AC 23 for `not_configured`, `argument_error`, and `internal_error` |
 | 3 | Versioned schemas: the five JSON Schema files, fixtures, and the readers' version check | Opus | yes: formats, v0.1 pending the template | AC 13 |
 | 4 | The job file and job name, the admin policy, `limits.yaml` as the compute list with `spend:`, and the quota-based ceiling as information | Opus | yes: the compute list | AC 5, 14; AC 6 without its spend check |
-| 4d | The [admission check](#the-admission-check): the launch ledger and the two spend limits | Opus | yes: limits spend | AC 6's spend check |
+| 4d | The [admission check](#the-admission-check): the launch ledger, and the effective spend limits read from the saved dashboard config (`plugins.compute_jobs`) over `limits.yaml`'s defaults | Opus | yes: limits spend | AC 6's spend check |
 | 5 | `dry-run` and `launch`, with a fake SkyPilot SDK | Sonnet | | AC 2, 7, and 22 and 23 for their kinds; launch submits the expected task and refuses unpushed changes |
 | 6 | `progress`, `observe` (with `--json` fixed), and `cancel` | Sonnet | | AC 2, 10, and 22 and 23 for their kinds |
 | 7 | The wrapper, run record, archive, and distributed variables, with S3 faked by moto | Sonnet | | AC 9, 11, 12 |
@@ -1119,7 +1227,7 @@ admin policy, and provisioning run on Opus; the rest on Sonnet. A PR marked
 | 9 | The three examples, their local CI dry runs, the `job:*` mise tasks, and each README's end-to-end sequence | Sonnet | | AC 16 |
 | 10 | The image and `compute-image.yml`: build and smoke test on PRs, attest and push to ECR on tags | Sonnet | yes: publishes through a cloud role | AC 18 |
 | 11 | Releases: `release.yml`, a ruleset protecting `v*` tags, release notes naming the contract, schema, and SkyPilot versions; tag `v0.1.0` | Sonnet | yes: release policy | AC 21; the template can pin `v0.1.0` |
-| 12 | IAM policy files, `mise.admin.toml`, `compute-server:status`, which reports the burn rate and the quota-based ceiling and fails on neither | Opus | yes: IAM | AC 3, 15; status prints the ceiling table from `spending_ceiling` |
+| 12 | IAM policy files, `mise.admin.toml`, `compute-server:status`, which reports the effective spend limits with their source, the AWS budget's amount, the burn rate, and the quota-based ceiling, and fails on none of them; `compute-server:spend` only if 4d needs the [fallback](#changing-the-spend-limits) | Opus | yes: IAM | AC 3, 15; status prints the ceiling table from `spending_ceiling` |
 | 13 | Provisioning: `eksctl.yaml`, `values.yaml`, `config.yaml`, the ECR repository, and `compute-server:provision` for one node | Opus | yes: provisioning | AC 4; `helm template` renders offline; provision refuses without the profile or the typed name |
 | 14 | The `compute-server-admin` skill, drafted for the owner | Sonnet | yes: people write skills (F2) | The owner has edited it |
 | 15 | The spike: the three examples through the real server, verified by the owner; this page and `docs/architecture.md` rewritten as built | Opus | yes: compute spend | AC 19, 20 |
@@ -1218,12 +1326,20 @@ and 20.
    `remote_identity: compute-jobs-job`, the ECR credential variables, the
    `timeout`, and the checkpoint mount. Its spend check, against a ledger in
    in-memory SQLite with a fixed clock: accepts a launch that brings the burn
-   rate or the 24-hour sum of ceilings exactly to its `spend:` limit, and
+   rate or the 24-hour sum of ceilings exactly to its effective limit, and
    rejects one a cent over, as `kind=rejected` naming both numbers; stops
    counting a row's burn after `counts_until` and its ceiling after 24
    hours; records only accepted server-side `JOBS_LAUNCH` requests, never
    `JOBS_LAUNCH_CLUSTER` or client-side ones; and rejects when the ledger
-   can't be read.
+   can't be read. Its settings read: with no `plugins.compute_jobs` in the
+   saved config row it uses `limits.yaml`'s defaults; a saved value
+   overrides its key alone and applies to the next launch; a value that
+   isn't a number above 0, or a daily cap below the burn limit, refuses
+   every launch naming the key and value; a launch whose own config sets
+   `plugins.compute_jobs` differently from the saved row is refused; and a
+   test fails if SkyPilot's `config_yaml` table or `api_server_config` key
+   changes name, or if its config schema stops accepting
+   `plugins.compute_jobs`.
 7. `dry-run` prints the maximum cost and runs the smoke test with no GPU
    visible; with `smoke: false` it skips it and exits 0 for a valid file; it
    warns on spot without checkpoints.
@@ -1250,7 +1366,7 @@ and 20.
     naming the major it saw; `progress.json` carries `schema` and
     `schema_version` with one value.
 14. `limits.yaml`'s entries validate, and `spend:` holds both limits, each
-    above 0; the quota-based ceiling as shipped is $415.37 an hour, $635.53
+    above 0, with the daily cap at least the burn limit; the quota-based ceiling as shipped is $415.37 an hour, $635.53
     with `gpu-train-large` enabled, and $772.68 with `g_vt_spot: 768`; no
     ceiling, however large, fails a test.
 15. The job role writes only under `machines/${aws:userid}/`, `index/`, and
@@ -1320,7 +1436,7 @@ the PR that builds it moves it out of this table.
 3. **The burn rate in `dry-run`** (proposed, not required): when both server
    variables are set and the server answers within 10 seconds, `dry-run`
    would print one more line after the maximum cost, such as
-   `Running now: $60.26 an hour of spend.max_burn_usd_per_hour $125`, computed
+   `Running now: $60.26 an hour of max_burn_usd_per_hour $125`, computed
    as in the admission check's fallback, and nothing on any error, with
    its exit codes unchanged. It contradicts "`dry-run` never calls SkyPilot"
    in [Variables](#variables) and AC 1, so it needs the owner's agreement.
@@ -1354,6 +1470,19 @@ the PR that builds it moves it out of this table.
 11. **Offline chart checks in CI**: a job with `MISE_ENV=admin` and no
     credentials that runs `helm template` would test PR 13 in CI, but puts the
     admin tools in CI, which the plan avoided.
+12. **A client could replace the admin policy** (from SkyPilot 0.14.0's
+    source; unverified on a server). The server merges each request's
+    client config over its own, ignoring only `SKIPPED_CLIENT_OVERRIDE_KEYS`
+    (`sky/skylet/constants.py`, line 694), which doesn't include
+    `admin_policy`, and reads `admin_policy` from the merged config
+    (`apply` in `sky/utils/admin_policy_utils.py`). SkyPilot's own client
+    drops the key before sending (`sky/server/requests/payloads.py`, line
+    128), but a hand-built request with the agents' token could name another
+    policy, or a URL, and skip every limit. PR 4d checks this on the real
+    server. If it holds, the options are: report it to SkyPilot and pin a
+    fixed version; an AWS WAF rule on the load balancer refusing request
+    bodies that contain `admin_policy`; or accepting it, with the agents'
+    rules and the budget action as the only limits.
 
 ## Decisions made
 
@@ -1373,5 +1502,8 @@ spike and verified by the owner.
 Later the same day: the account's AWS vCPU quotas stay at their applied
 values and don't limit spend; the $10,000 a day figure was arbitrary; spend
 is limited in software, by the four layers in [Spend limits](#spend-limits);
-and the owner sets `spend:` in `limits.yaml`, the spot quotas, and the AWS
-daily budget.
+and the owner sets the spot quotas.
+
+On 2026-10-16: $125 an hour and $3,000 a day are the starting spend limits;
+the owner adjusts them on the dashboard's config page, with no release, no
+restart, and no AWS console change.
