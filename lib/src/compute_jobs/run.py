@@ -48,8 +48,7 @@ MASTER_PORT = "29500"
 JOB_KINDS = ("single", "multi-node", "search")
 
 ARCHIVE_FAILURE_EXIT_CODE = 1
-"""The wrapper's exit code when the archive can't be opened and the command
-never ran."""
+"""The wrapper's exit code when the archive can't be written."""
 
 
 @dataclass(frozen=True)
@@ -79,7 +78,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ``sys.argv[1:]``. Run it with ``--help`` for the options.
 
     Returns:
-        The command's exit code; 1 if the archive can't be opened; and 0 on
+        The command's exit code; 1 if the archive can't be opened or written; and 0 on
         every rank but 0 of a ``search`` job, which has no command to run.
     """
     arguments = _build_parser().parse_args(argv)
@@ -110,9 +109,12 @@ def run_job(
 ) -> int:
     """Run the job's command on this machine, and write its part of the archive.
 
-    A failed upload is written to the log and does not change the exit code.
-    The final run record is written last, so a record with a final state means
-    the log and output were uploaded before it.
+    The command runs only if the marker can be written, so a job whose archive
+    is unreachable fails at once, not after hours of work nobody can read. After
+    that, a failed upload is written to the log and does not change the exit
+    code. The final run record is written last, so a record with a final state
+    means the output and log were uploaded before it, and the uploaded log
+    mentions a failed output upload.
 
     Args:
         job: The job.
@@ -183,7 +185,14 @@ def _run_and_archive(
         command=job.command,
         seed=job.seed,
     )
-    _best_effort("write the marker", archive.write_marker, log.write)
+    try:
+        archive.write_marker()
+    except (BotoCoreError, ClientError) as error:
+        log.write(
+            f"compute-jobs: cannot write to the archive: {error}. "
+            "Check the machine's role and the bucket name; the command was not run.\n"
+        )
+        return ARCHIVE_FAILURE_EXIT_CODE
     _best_effort(
         "write the run record",
         lambda: archive.write_run_record(record.to_dict()),
@@ -200,13 +209,13 @@ def _run_and_archive(
         exit_code = _run_command(job.command, command_environment, log)
 
     _best_effort(
-        "upload log.txt",
-        lambda: archive.upload_file(working_dir / "log.txt", "log.txt"),
+        "upload the output",
+        lambda: archive.upload_output_directory(output_dir),
         log.write,
     )
     _best_effort(
-        "upload the output",
-        lambda: archive.upload_output_directory(output_dir),
+        "upload log.txt",
+        lambda: archive.upload_file(working_dir / "log.txt", "log.txt"),
         log.write,
     )
     record = replace(
