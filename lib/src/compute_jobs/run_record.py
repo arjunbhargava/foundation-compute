@@ -38,6 +38,7 @@ class RunRecord:
         ran_command: False when this machine had nothing to run, which is
             true of every rank except 0 in a ``search`` job.
         seed: The job file's seed, or None if it has none.
+        settings: The job file's ``settings``, or None if it has none.
         image_cuda_version: The CUDA version the image needs, or None when
             the wrapper wasn't told one.
         driver_cuda_version: The CUDA version the GPU driver supports, or
@@ -59,6 +60,7 @@ class RunRecord:
     command: str
     ran_command: bool = True
     seed: int | None = None
+    settings: dict[str, object] | None = None
     image_cuda_version: str | None = None
     driver_cuda_version: str | None = None
     exit_code: int | None = None

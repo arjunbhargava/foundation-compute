@@ -1,8 +1,8 @@
 """The in-job wrapper: ``python -m compute_jobs.run``, which runs on every machine of a job.
 
-The wrapper exports the distributed variables, runs the job's command, and
-writes the machine's part of the job archive: run record, output, and log. It
-never calls the SkyPilot server. See ``docs/compute-jobs.md``, "How a job
+The wrapper checks the GPU driver, exports the distributed variables, runs the
+job's command, and writes the machine's part of the job archive: run record,
+progress, output, and log. It never calls the SkyPilot server. See ``docs/compute-jobs.md``, "How a job
 runs".
 
 Variables the command sees, besides the caller's own:
@@ -13,10 +13,16 @@ Variables the command sees, besides the caller's own:
     ``SKYPILOT_NUM_GPUS_PER_NODE``), with defaults for one node.
 ``COMPUTE_JOB_OUTPUT_DIR``
     A directory whose files are uploaded to ``machines/<machine id>/output/``.
+    ``progress.json`` in it is uploaded as the machine's progress, at most
+    every 30 s and at the end, and printed to the log as a line starting
+    ``COMPUTE_PROGRESS`` at most every 60 s.
 ``COMPUTE_JOB_CHECKPOINT_DIR``
     The directory the server mounts on ``checkpoints/<job name>/``.
 ``COMPUTE_JOB_SEED``
     The job file's seed; unset when the job has none.
+``COMPUTE_JOB_SETTINGS``
+    The job file's ``settings`` as JSON; unset when the job has none. The
+    page names no variable for it, so this name is proposed.
 ``COMPUTE_JOB_SMOKE``
     ``0``, unless the caller set it, as a dry run does.
 
@@ -25,11 +31,14 @@ command stopped by ``timeout`` exits 124 and is recorded as ``timed_out``.
 """
 
 import argparse
+import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -39,16 +48,29 @@ from typing import Self, TextIO
 from boto3.exceptions import S3UploadFailedError
 from botocore.exceptions import BotoCoreError, ClientError
 
-from compute_jobs.archive import ArchiveWriter
+from compute_jobs.archive import PROGRESS_FILE_NAME, ArchiveWriter
 from compute_jobs.run_record import RunRecord, final_state
+
+PROGRESS_UPLOAD_INTERVAL_S = 30.0
+"""The least time between two uploads of ``progress.json`` or of the log, from
+the page's "Progress" section."""
+
+PROGRESS_LOG_INTERVAL_S = 60.0
+"""The least time between two ``COMPUTE_PROGRESS`` lines in the log."""
+
+POLL_INTERVAL_S = 5.0
+"""How often the wrapper checks whether an upload or a log line is due."""
 
 MASTER_PORT = "29500"
 """``MASTER_PORT``, fixed, as the page says."""
 
 JOB_KINDS = ("single", "multi-node", "search")
 
-ARCHIVE_FAILURE_EXIT_CODE = 1
-"""The wrapper's exit code when the archive can't be written."""
+FAILURE_BEFORE_COMMAND_EXIT_CODE = 1
+"""The wrapper's exit code when the archive can't be written or the driver's
+CUDA is too old, so the command never ran."""
+
+_DRIVER_CUDA_PATTERN = re.compile(r"CUDA Version:\s*(\d+(?:\.\d+)*)")
 
 
 @dataclass(frozen=True)
@@ -61,6 +83,9 @@ class Job:
         command: The job file's command, run by bash.
         checkpoint_dir: The path of the mounted checkpoint directory.
         seed: The job file's seed, or None.
+        settings_json: The job file's ``settings`` as a JSON object, or None.
+        image_cuda_version: The CUDA version the image needs, such as
+            ``12.8``, or None to skip the driver check.
     """
 
     name: str
@@ -68,6 +93,8 @@ class Job:
     command: str
     checkpoint_dir: str
     seed: int | None = None
+    settings_json: str | None = None
+    image_cuda_version: str | None = None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -78,7 +105,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             ``sys.argv[1:]``. Run it with ``--help`` for the options.
 
     Returns:
-        The command's exit code; 1 if the archive can't be opened or written; and 0 on
+        The command's exit code; 1 if the archive can't be opened or written, or the
+        driver's CUDA is older than the image's; and 0 on
         every rank but 0 of a ``search`` job, which has no command to run.
     """
     arguments = _build_parser().parse_args(argv)
@@ -88,6 +116,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         command=arguments.command,
         checkpoint_dir=arguments.checkpoint_dir,
         seed=arguments.seed,
+        settings_json=arguments.settings_json,
+        image_cuda_version=arguments.image_cuda_version,
     )
 
     try:
@@ -98,7 +128,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "Check the machine's role and the bucket name; the command was not run.",
             file=sys.stderr,
         )
-        return ARCHIVE_FAILURE_EXIT_CODE
+        return FAILURE_BEFORE_COMMAND_EXIT_CODE
 
     with tempfile.TemporaryDirectory(prefix="compute-job-") as working_dir:
         return run_job(job, archive, dict(os.environ), Path(working_dir))
@@ -174,6 +204,10 @@ def _run_and_archive(
     output_dir = working_dir / "output"
     output_dir.mkdir()
 
+    progress = ProgressPublisher(output_dir / PROGRESS_FILE_NAME, archive, log.write)
+    log_upload = _ChangedFileUploader(
+        working_dir / "log.txt", "log.txt", archive, log.write, _size_of
+    )
     record = RunRecord(
         job_name=job.name,
         kind=job.kind,
@@ -184,6 +218,8 @@ def _run_and_archive(
         started_at=_now(),
         command=job.command,
         seed=job.seed,
+        settings=None if job.settings_json is None else json.loads(job.settings_json),
+        image_cuda_version=job.image_cuda_version,
     )
     try:
         archive.write_marker()
@@ -192,32 +228,46 @@ def _run_and_archive(
             f"compute-jobs: cannot write to the archive: {error}. "
             "Check the machine's role and the bucket name; the command was not run.\n"
         )
-        return ARCHIVE_FAILURE_EXIT_CODE
+        return FAILURE_BEFORE_COMMAND_EXIT_CODE
     _best_effort(
         "write the run record",
         lambda: archive.write_run_record(record.to_dict()),
         log.write,
     )
 
-    if job.kind == "search" and node_rank != 0:
+    driver_version, failure = _check_driver(job.image_cuda_version, environ)
+    record = replace(record, driver_cuda_version=driver_version)
+    if failure is not None:
+        log.write(f"compute-jobs: {failure}\n")
+        exit_code = FAILURE_BEFORE_COMMAND_EXIT_CODE
+        record = replace(record, ran_command=False, failure=failure)
+    elif job.kind == "search" and node_rank != 0:
         exit_code = 0
         record = replace(record, ran_command=False)
     else:
         command_environment = _command_environment(
             job, environ, distributed, output_dir
         )
-        exit_code = _run_command(job.command, command_environment, log)
+        stop_publishing = threading.Event()
+        publisher = threading.Thread(
+            target=_publish_periodically,
+            args=(stop_publishing, [progress.publish_if_due, log_upload.upload_if_due]),
+            daemon=True,
+        )
+        publisher.start()
+        try:
+            exit_code = _run_command(job.command, command_environment, log)
+        finally:
+            stop_publishing.set()
+            publisher.join()
 
+    progress.publish_if_due(time.monotonic(), final=True)
     _best_effort(
         "upload the output",
         lambda: archive.upload_output_directory(output_dir),
         log.write,
     )
-    _best_effort(
-        "upload log.txt",
-        lambda: archive.upload_file(working_dir / "log.txt", "log.txt"),
-        log.write,
-    )
+    log_upload.upload_if_due(time.monotonic(), final=True)
     record = replace(
         record, state=final_state(exit_code), exit_code=exit_code, finished_at=_now()
     )
@@ -244,7 +294,43 @@ def _command_environment(
     }
     if job.seed is not None:
         command_environment["COMPUTE_JOB_SEED"] = str(job.seed)
+    if job.settings_json is not None:
+        command_environment["COMPUTE_JOB_SETTINGS"] = job.settings_json
     return command_environment
+
+
+def _check_driver(
+    image_cuda_version: str | None, environ: Mapping[str, str]
+) -> tuple[str | None, str | None]:
+    """Return the driver's CUDA version, and why it is too old, if it is.
+
+    A machine without ``nvidia-smi``, or with output that has no CUDA
+    version, passes: a CPU profile has no driver, and an unreadable one is
+    not proof that the job would fail.
+    """
+    try:
+        smi = subprocess.run(
+            ["nvidia-smi"],
+            env=dict(environ),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None, None
+    match = _DRIVER_CUDA_PATTERN.search(smi.stdout)
+    if match is None:
+        return None, None
+
+    driver_version = match.group(1)
+    if image_cuda_version is not None and _as_tuple(driver_version) < _as_tuple(
+        image_cuda_version
+    ):
+        return driver_version, (
+            f"driver supports CUDA {driver_version}, image needs {image_cuda_version}; "
+            "ask the owner for a machine image with a newer driver"
+        )
+    return driver_version, None
 
 
 def _run_command(command: str, environ: Mapping[str, str], log: "_JobLog") -> int:
@@ -291,6 +377,107 @@ class _JobLog:
             self._echo.flush()
 
 
+class _ChangedFileUploader:
+    """Uploads a file when its fingerprint changed, at most every ``PROGRESS_UPLOAD_INTERVAL_S``."""
+
+    def __init__(
+        self,
+        path: Path,
+        name: str,
+        archive: ArchiveWriter,
+        write_log: Callable[[str], object],
+        fingerprint: Callable[[Path], object],
+    ) -> None:
+        self._path = path
+        self._name = name
+        self._archive = archive
+        self._write_log = write_log
+        self._fingerprint = fingerprint
+        self._last_upload_s: float | None = None
+        self._uploaded_fingerprint: object = None
+
+    def upload_if_due(self, now_s: float, final: bool = False) -> bool:
+        """Upload if the file changed since the last upload and the interval has passed.
+
+        ``final`` ignores the interval. Returns whether it uploaded.
+        """
+        if not self._path.exists():
+            return False
+        fingerprint = self._fingerprint(self._path)
+        interval_passed = (
+            self._last_upload_s is None
+            or now_s - self._last_upload_s >= PROGRESS_UPLOAD_INTERVAL_S
+        )
+        if fingerprint == self._uploaded_fingerprint or not (final or interval_passed):
+            return False
+
+        self._last_upload_s = now_s
+        self._uploaded_fingerprint = fingerprint
+        _best_effort(
+            f"upload {self._name}",
+            lambda: self._archive.upload_file(self._path, self._name),
+            self._write_log,
+        )
+        return True
+
+
+class ProgressPublisher:
+    """Uploads ``progress.json`` every 30 s and prints it as a ``COMPUTE_PROGRESS`` line every 60 s.
+
+    ``path`` is where ``progress.json`` is written, which may not exist yet;
+    ``write_log`` receives each line, newline included, and each upload failure.
+    """
+
+    def __init__(
+        self, path: Path, archive: ArchiveWriter, write_log: Callable[[str], object]
+    ) -> None:
+        self._path = path
+        self._write_log = write_log
+        self._uploader = _ChangedFileUploader(
+            path, PROGRESS_FILE_NAME, archive, write_log, _content_of
+        )
+        self._last_line_s: float | None = None
+        self._last_line_content: str | None = None
+
+    def publish_if_due(self, now_s: float, final: bool = False) -> None:
+        """Upload and log the progress, each if it changed and its interval has passed.
+
+        Args:
+            now_s: The current time in seconds on any clock that doesn't go
+                backwards, such as ``time.monotonic``.
+            final: True at the end of the job, which ignores both intervals.
+
+        A failed upload is written to the log, not raised. The file must be
+        replaced atomically by its writer, since a half-written file would be
+        uploaded as it is.
+        """
+        self._uploader.upload_if_due(now_s, final)
+        if not self._path.exists():
+            return
+        line_due = (
+            self._last_line_s is None
+            or now_s - self._last_line_s >= PROGRESS_LOG_INTERVAL_S
+        )
+        try:
+            content = json.dumps(
+                json.loads(self._path.read_text()), separators=(",", ":")
+            )
+        except (OSError, ValueError):
+            return
+        if content != self._last_line_content and (final or line_due):
+            self._last_line_s = now_s
+            self._last_line_content = content
+            self._write_log(f"COMPUTE_PROGRESS {content}\n")
+
+
+def _publish_periodically(
+    stop: threading.Event, publishers: Sequence[Callable[[float], object]]
+) -> None:
+    while not stop.wait(POLL_INTERVAL_S):
+        for publish in publishers:
+            publish(time.monotonic())
+
+
 def _best_effort(
     description: str,
     action: Callable[[], object],
@@ -300,6 +487,36 @@ def _best_effort(
         action()
     except (BotoCoreError, ClientError, S3UploadFailedError, OSError) as error:
         write_log(f"compute-jobs: could not {description}: {error}\n")
+
+
+def _content_of(path: Path) -> bytes:
+    """Fingerprint a file that can be rewritten with the same size, like ``progress.json``."""
+    return path.read_bytes()
+
+
+def _size_of(path: Path) -> int:
+    """Fingerprint a file that is only appended to, like the log."""
+    return path.stat().st_size
+
+
+def _as_tuple(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+def _cuda_version(text: str) -> str:
+    if not re.fullmatch(r"\d+(\.\d+)*", text):
+        raise argparse.ArgumentTypeError(f"{text!r} is not a CUDA version such as 12.8")
+    return text
+
+
+def _json_object(text: str) -> str:
+    try:
+        parsed = json.loads(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"{text!r} is not JSON: {error}") from error
+    if not isinstance(parsed, dict):
+        raise argparse.ArgumentTypeError(f"{text!r} is not a JSON object")
+    return text
 
 
 def _now() -> str:
@@ -321,6 +538,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--checkpoint-dir", required=True, help="the mounted checkpoint directory"
     )
     parser.add_argument("--seed", type=int, help="the job file's seed")
+    parser.add_argument(
+        "--settings-json",
+        type=_json_object,
+        help="the job file's settings, as a JSON object",
+    )
+    parser.add_argument(
+        "--image-cuda-version",
+        type=_cuda_version,
+        help="the CUDA version the image needs, such as 12.8; omit to skip the driver check",
+    )
     return parser
 
 
