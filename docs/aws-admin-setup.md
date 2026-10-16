@@ -39,13 +39,13 @@ pending):
 
 - each job's ceiling must not exceed its own `budget_usd`;
 - the server's admin policy keeps a ledger of launches, and refuses one that
-  would take the running jobs' burn rate over `spend.max_burn_usd_per_hour`,
-  or the last 24 hours' launches over `spend.daily_cap_usd`, both in
-  `limits.yaml`;
-- an AWS daily budget of `spend.daily_cap_usd` blocks new machines when
+  would take the running jobs' burn rate over the owner's hourly limit, or
+  the last 24 hours' launches over the owner's daily cap;
+- an AWS daily budget equal to the daily cap blocks new machines when
   reached (step 7).
 
-The owner sets both numbers; the proposal is $125 an hour and $3,000 a day.
+They start at $125 an hour and $3,000 a day, and the owner can change them
+without a release.
 
 ## Terms
 
@@ -60,8 +60,8 @@ The owner sets both numbers; the proposal is $125 an hour and $3,000 a day.
 
 ## Choose an option
 
-**Option A (recommended)**: you create the account, then give the owner a
-scoped IAM Identity Center permission set for the setup window, and remove it
+**Option A (recommended)**: you give the owner a scoped IAM Identity
+Center permission set on the `agent-jobs` account for the setup window, and remove it
 afterwards. The owner runs the steps.
 
 **Option B**: you run provisioning yourself on a laptop. Prerequisites:
@@ -83,13 +83,13 @@ task; it asks you to type the cluster name before it changes anything
 key and the server's initial admin password once (pending PR 13): give them
 to the owner through a password manager, never by email or chat.
 
-In both options, only you can do step 1. The rest can be either of you.
+Only you can do steps 1 and 2. The rest can be either of you.
 
 ## Steps and the permissions each needs
 
 | # | Step | Who | Permissions |
 |---|---|---|---|
-| 1 | Create the account | You | `organizations:CreateAccount`, in the management account or a delegated administrator |
+| 1 | Check the account | You | `organizations:DescribeAccount`, `organizations:ListPoliciesForTarget`, in the management account or a delegated administrator |
 | 2 | Option A only: permission set and assignment | You | `sso:CreatePermissionSet`, `sso:PutInlinePolicyToPermissionSet`, `sso:AttachManagedPolicyToPermissionSet`, `sso:CreateAccountAssignment`, `sso:ProvisionPermissionSet`, and their `Delete` counterparts afterwards |
 | 3 | Quotas: read, never lower | Either | `servicequotas:` statement `Quotas` below |
 | 4 | Route 53 hosted zone | Either | statement `HostedZone`; registering a domain also needs `route53domains:RegisterDomain` (you only) |
@@ -98,14 +98,14 @@ In both options, only you can do step 1. The rest can be either of you.
 | 7 | Daily budget with an action | Either | statement `Budget`, and `iam:CreateRole`, `iam:PutRolePolicy`, `iam:PassRole` on `compute-jobs-budget-action` |
 | 8 | Cost anomaly alert (optional) | Either | `ce:CreateAnomalyMonitor`, `ce:CreateAnomalySubscription` |
 
-### 1. Create the account
+### 1. Check the account
+
+The account, `agent-jobs`, already exists; its quotas are in step 3.
 
 1. Open <https://console.aws.amazon.com/organizations/v2/home/accounts> and
-   choose **Add an AWS account**.
-2. Name it `agent-jobs`, under the owner's negotiated pricing agreement, in
-   the organizational unit you choose (see
-   [Questions](#questions-for-the-administrator)).
-3. Turn on IAM Identity Center access to it for the owner's user.
+   find `agent-jobs`. Note its 12-digit account ID.
+2. Check that the SCPs on it and its organizational unit allow the steps
+   below (see [Questions](#questions-for-the-administrator)).
 
 ### 2. Option A: the permission set
 
@@ -137,8 +137,8 @@ Quotas do not limit spend in this design; the software limits above do.
 The quotas are the owner's, kept high so that jobs aren't refused by EC2.
 **Do not lower any quota.**
 
-The owner read these applied values from the Service Quotas page, in
-`us-east-1`, on 2026-10-15:
+The owner read these applied values from `agent-jobs`'s Service Quotas
+page, in `us-east-1`, on 2026-10-15. They must not be lowered:
 
 | EC2 quota, in vCPUs | Applied value [AWS default] |
 |---|---|
@@ -151,12 +151,6 @@ The owner read these applied values from the Service Quotas page, in
 
 No profile uses the other on-demand quotas, which also must not be lowered:
 DL 96, F 128, High Memory 448, HPC 768, Inf 128, Trn 256, X 128.
-
-Quotas are per account. If `agent-jobs` is a new account, it starts at
-AWS's defaults
-([AWS](https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-instance-quotas.html)),
-not at these values, and the owner will tell you what to request (see
-[Questions](#questions-for-the-administrator)).
 
 `limits.yaml` mirrors these values only so that `compute-server:status` can
 report what jobs could cost an hour if launches bypassed the server. It
@@ -231,14 +225,12 @@ The plan doesn't name one; this page proposes `compute-jobs-budget-action`.
 2. After provisioning, open
    <https://console.aws.amazon.com/costmanagement/home#/budgets/create>.
    Create a daily cost budget, `compute-jobs-daily`, with email alerts at
-   50% and 80% of actual cost. Its amount is `spend.daily_cap_usd` in
-   `limits.yaml`: the owner will tell you the number (proposed: $3,000 a
-   day). The server's $15 a day counts against it too.
+   50% and 80% of actual cost. The owner will tell you the budget number:
+   the AWS daily budget should equal the owner's daily cap, and the owner
+   can change it later. The server's $15 a day counts against it too.
 3. Add an action at 100% of actual cost, run automatically: apply the IAM
    policy `compute-jobs-deny-launch` to the role `compute-jobs-launcher`.
    That AWS accepts an action on a daily budget is unverified.
-4. When the owner changes `spend.daily_cap_usd`, change the budget to
-   match.
 
 ### 8. Cost anomaly alert (optional)
 
@@ -430,7 +422,7 @@ sets:
   which can only read the bucket and is rotated quarterly.
 - **`us-east-1` only.** The policy's `OnlyUsEast1` statement enforces it for
   the owner; an SCP on the account would enforce it for everyone.
-- **The budget action.** At `spend.daily_cap_usd` of actual cost in a day
+- **The budget action.** At the daily cap's worth of actual cost in a day
   it attaches `compute-jobs-deny-launch` (deny `ec2:RunInstances` and
   `ec2:StartInstances`) to the server's role. It stops no running machine,
   and AWS budget data lags by up to a day, so it is the backstop behind the
@@ -449,20 +441,17 @@ sets:
 ## Questions for the administrator
 
 1. **Account**: which organizational unit holds `agent-jobs`?
-2. **Quota source**, for the owner to answer: do the quota values in step 3
-   come from `agent-jobs` itself, or from another account? If another, and
-   `agent-jobs` is new, it starts at AWS's defaults and needs requests.
-3. **SCPs**: do any deny `eks:*`, `iam:CreateOpenIDConnectProvider`,
+2. **SCPs**: do any deny `eks:*`, `iam:CreateOpenIDConnectProvider`,
    `iam:CreateUser`, `iam:CreateAccessKey` (the read-only key), service-linked
    roles, or `us-east-1`?
-4. **Permissions boundary**: should roles created in the account require
+3. **Permissions boundary**: should roles created in the account require
    one? eksctl supports boundaries in its config file; PR 13 would need to set
    them.
-5. **Names**: do `compute-jobs-*`, `eksctl-*`, or `agent-jobs` clash with
+4. **Names**: do `compute-jobs-*`, `eksctl-*`, or `agent-jobs` clash with
    anything in your organization?
-6. **Domain**: which domain or subdomain holds the host name, and who
+5. **Domain**: which domain or subdomain holds the host name, and who
    controls its DNS?
-7. **After setup**: `compute-server:status` and each upgrade need access to
+6. **After setup**: `compute-server:status` and each upgrade need access to
    the account. Should the owner keep a narrower permission set, or get
    `ComputeJobsSetup` again for each upgrade? By EKS's default, the cluster
    grants Kubernetes admin to the role that created it, an `AWSReservedSSO_*` role
