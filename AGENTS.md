@@ -54,6 +54,8 @@ language the project has: Python.
   - Python: a contract under `[tool.importlinter]` in `pyproject.toml`. The
     client may import the library; the library never imports the client,
     and the admin policy imports neither.
+- `compute/server/aws/`: the server account's IAM policies, explained in its
+  `README.md` and checked statically by `policies_test.py`.
 - `.github/scripts/`: the repository's own tooling, which people, agents, and
   CI run through `mise run`, such as `mutate.sh` and `agent_spend.py`. Each
   script is tested by the `_test` file next to it.
