@@ -1,6 +1,10 @@
 import json
 import os
+import socket
 import stat
+import threading
+import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +25,7 @@ def make_job(
     command: str,
     kind: str = "single",
     seed: int | None = None,
+    settings_json: str | None = None,
     image_cuda_version: str | None = None,
 ) -> Job:
     return Job(
@@ -29,6 +34,7 @@ def make_job(
         command,
         "/mnt/checkpoints",
         seed,
+        settings_json,
         image_cuda_version,
     )
 
@@ -65,8 +71,9 @@ def run_record(s3: S3Client) -> dict[str, object]:
 
 SEEN_KEY = f"machines/{MACHINE_ID}/output/seen.txt"
 SHOW_VARIABLES = (
-    'printf "%s|%s|%s|%s|%s|%s|%s|%s" "$NNODES" "$NODE_RANK" "$MASTER_ADDR" "$MASTER_PORT"'
+    'printf "%s|%s|%s|%s|%s|%s|%s|%s|%s" "$NNODES" "$NODE_RANK" "$MASTER_ADDR" "$MASTER_PORT"'
     ' "$GPUS_PER_NODE" "$COMPUTE_JOB_SEED" "$COMPUTE_JOB_SMOKE" "$COMPUTE_JOB_CHECKPOINT_DIR"'
+    ' "${COMPUTE_JOB_SETTINGS-unset}"'
     ' > "$COMPUTE_JOB_OUTPUT_DIR/seen.txt"'
 )
 
@@ -138,6 +145,21 @@ def test_a_driver_with_the_images_cuda_or_newer_or_no_driver_runs_the_command(
     assert run_record(s3).get("driver_cuda_version") == driver_cuda_version
 
 
+def test_the_jobs_settings_reach_the_command_as_json_and_the_run_record(
+    s3: S3Client, tmp_path: Path
+) -> None:
+    command = (
+        'printf "%s" "$COMPUTE_JOB_SETTINGS" > "$COMPUTE_JOB_OUTPUT_DIR/settings.txt"'
+    )
+    settings_json = '{"population": 10000, "elite": [1, 2]}'
+
+    run(s3, tmp_path, make_job(command, settings_json=settings_json))
+
+    settings_key = f"machines/{MACHINE_ID}/output/settings.txt"
+    assert read_object(s3, settings_key).decode() == settings_json
+    assert run_record(s3)["settings"] == {"population": 10000, "elite": [1, 2]}
+
+
 def test_ac12_one_node_gets_the_distributed_variables_with_one_node_defaults(
     s3: S3Client, tmp_path: Path
 ) -> None:
@@ -145,7 +167,7 @@ def test_ac12_one_node_gets_the_distributed_variables_with_one_node_defaults(
 
     assert (
         read_object(s3, SEEN_KEY).decode()
-        == "1|0|127.0.0.1|29500|0|1234|0|/mnt/checkpoints"
+        == "1|0|127.0.0.1|29500|0|1234|0|/mnt/checkpoints|unset"
     )
 
 
@@ -162,31 +184,155 @@ def test_ac12_two_nodes_get_skypilots_rank_master_address_and_gpu_count(
     run(s3, tmp_path, make_job(SHOW_VARIABLES, kind="multi-node"), skypilot)
 
     assert (
-        read_object(s3, SEEN_KEY).decode() == "2|1|10.0.0.5|29500|8||0|/mnt/checkpoints"
+        read_object(s3, SEEN_KEY).decode()
+        == "2|1|10.0.0.5|29500|8||0|/mnt/checkpoints|unset"
     )
 
 
-@pytest.mark.parametrize(
-    ("kind", "node_rank", "runs_command"),
-    [
-        ("multi-node", "1", True),
-        ("search", "0", True),
-        ("search", "1", False),
-    ],
-)
-def test_ac12_the_command_runs_on_every_node_of_multi_node_and_on_rank_0_of_search(
-    s3: S3Client, tmp_path: Path, kind: str, node_rank: str, runs_command: bool
+def test_ac12_the_command_runs_on_every_node_of_multi_node(
+    s3: S3Client, tmp_path: Path
 ) -> None:
-    skypilot = {"SKYPILOT_NUM_NODES": "2", "SKYPILOT_NODE_RANK": node_rank}
+    skypilot = {"SKYPILOT_NUM_NODES": "2", "SKYPILOT_NODE_RANK": "1"}
 
-    exit_code = run(s3, tmp_path, make_job(SHOW_VARIABLES, kind=kind), skypilot)
+    assert run(s3, tmp_path, make_job(SHOW_VARIABLES, "multi-node"), skypilot) == 0
 
+    assert run_record(s3)["ran_command"] is True
+    assert SEEN_KEY in object_keys(s3)
+
+
+SEARCH_RANK_0 = {"SKYPILOT_NUM_NODES": "2", "SKYPILOT_NODE_IPS": "127.0.0.1\n10.0.0.6"}
+SEARCH_RANK_1 = {**SEARCH_RANK_0, "SKYPILOT_NODE_RANK": "1"}
+
+
+def fake_ray(directory: Path) -> dict[str, str]:
+    """Return an environment whose ``ray`` records its arguments in ``$RAY_CALLS``.
+
+    Like ``ray start --block``, it then waits until SIGTERM, and records
+    ``terminated``. It exits with ``$RAY_START_EXIT`` at once when that is set.
+    """
+    directory.mkdir()
+    program = directory / "ray"
+    program.write_text(
+        "#!/bin/sh\n"
+        "trap 'echo terminated >> \"$RAY_CALLS\"; exit 0' TERM\n"
+        'echo "$@" >> "$RAY_CALLS"\n'
+        '[ -n "$RAY_START_EXIT" ] && exit "$RAY_START_EXIT"\n'
+        "sleep 600 & wait $!\n"
+    )
+    program.chmod(program.stat().st_mode | stat.S_IEXEC)
+    return {"PATH": f"{directory}:{SYSTEM_PATH}", "RAY_CALLS": str(directory / "calls")}
+
+
+def ray_calls(environ: dict[str, str]) -> list[str]:
+    calls = Path(environ["RAY_CALLS"])
+    return calls.read_text().splitlines() if calls.exists() else []
+
+
+def wait_for_ray_calls(environ: dict[str, str], count: int) -> None:
+    for _ in range(200):
+        if len(ray_calls(environ)) >= count:
+            return
+        time.sleep(0.05)
+
+
+@pytest.fixture
+def head_port(monkeypatch: pytest.MonkeyPatch) -> Iterator[socket.socket]:
+    """A bound socket that stands in for rank 0's Ray at ``RAY_PORT``, once it listens."""
+    head = socket.socket()
+    head.bind(("127.0.0.1", 0))
+    monkeypatch.setattr("compute_jobs.run.RAY_PORT", head.getsockname()[1])
+    monkeypatch.setattr("compute_jobs.run.RAY_POLL_INTERVAL_S", 0.05)
+    yield head
+    head.close()
+
+
+def test_search_rank_0_runs_the_command_between_starting_and_stopping_ray(
+    s3: S3Client, tmp_path: Path, head_port: socket.socket
+) -> None:
+    port = head_port.getsockname()[1]
+    environ = {**fake_ray(tmp_path / "bin"), **SEARCH_RANK_0}
+    listen_once_ray_has_started = threading.Thread(
+        target=lambda: (wait_for_ray_calls(environ, 1), head_port.listen())
+    )
+    listen_once_ray_has_started.start()
+    job = make_job('echo "the command" >> "$RAY_CALLS"', "search")
+
+    assert run(s3, tmp_path, job, environ) == 0
+
+    assert ray_calls(environ) == [
+        (
+            f"start --head --port={port} --include-dashboard=false "
+            "--disable-usage-stats --node-ip-address=127.0.0.1 --block"
+        ),
+        "the command",
+        "terminated",
+    ]
+    assert run_record(s3)["ran_command"] is True
+
+
+def test_search_rank_0_does_not_run_the_command_when_ray_will_not_start(
+    s3: S3Client, tmp_path: Path, head_port: socket.socket
+) -> None:
+    environ = {**fake_ray(tmp_path / "bin"), **SEARCH_RANK_0, "RAY_START_EXIT": "3"}
+    job = make_job('echo "the command" >> "$RAY_CALLS"', "search")
+
+    assert run(s3, tmp_path, job, environ) == 3
+
+    [only_call] = ray_calls(environ)
+    assert only_call.startswith("start --head")
+    assert run_record(s3)["state"] == "failed"
+
+
+def test_search_rank_1_joins_rank_0s_ray_and_exits_0_when_the_head_port_closes(
+    s3: S3Client, tmp_path: Path, head_port: socket.socket
+) -> None:
+    port = head_port.getsockname()[1]
+    environ = {**fake_ray(tmp_path / "bin"), **SEARCH_RANK_1}
+    exit_codes: list[int] = []
+    worker = threading.Thread(
+        target=lambda: exit_codes.append(
+            run(s3, tmp_path, make_job("false", "search"), environ)
+        )
+    )
+
+    head_port.listen()
+    worker.start()
+    wait_for_ray_calls(environ, 1)
+    assert worker.is_alive()
+    head_port.close()
+    worker.join(timeout=10)
+
+    assert exit_codes == [0]
+    assert ray_calls(environ) == [
+        f"start --address=127.0.0.1:{port} --disable-usage-stats --block",
+        "terminated",
+    ]
     record = run_record(s3)
-    assert exit_code == 0
-    assert record["ran_command"] is runs_command
-    assert (SEEN_KEY in object_keys(s3)) is runs_command
-    assert record["state"] == "succeeded"
-    assert f"index/{JOB_NAME}/{MACHINE_ID}" in object_keys(s3)
+    assert (record["state"], record["ran_command"]) == ("succeeded", False)
+
+
+def test_search_rank_1_fails_when_it_cannot_join_ray(
+    s3: S3Client, tmp_path: Path, head_port: socket.socket
+) -> None:
+    head_port.listen()
+    environ = {**fake_ray(tmp_path / "bin"), **SEARCH_RANK_1, "RAY_START_EXIT": "3"}
+
+    assert run(s3, tmp_path, make_job("false", "search"), environ) == 3
+
+
+def test_search_rank_1_fails_when_the_head_never_comes_up(
+    s3: S3Client,
+    tmp_path: Path,
+    head_port: socket.socket,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("compute_jobs.run.RAY_HEAD_WAIT_S", 0.2)
+    environ = {**fake_ray(tmp_path / "bin"), **SEARCH_RANK_1}
+
+    assert run(s3, tmp_path, make_job("false", "search"), environ) == 1
+
+    assert "Ray's head at 127.0.0.1" in (tmp_path / "work" / "log.txt").read_text()
+    assert ray_calls(environ) == []
 
 
 def test_a_job_whose_archive_cannot_be_written_fails_before_the_command(
@@ -366,16 +512,27 @@ def test_ac9_progress_is_logged_while_the_command_is_still_running(
     assert log.index("COMPUTE_PROGRESS") < log.index("after the pause")
 
 
-def test_main_refuses_a_cuda_version_that_is_not_a_version(
-    capsys: pytest.CaptureFixture[str],
+@pytest.mark.parametrize(
+    ("option", "value", "message"),
+    [
+        ("--settings-json", "[1, 2]", "'[1, 2]' is not a JSON object"),
+        (
+            "--image-cuda-version",
+            "twelve",
+            "'twelve' is not a CUDA version such as 12.8",
+        ),
+    ],
+)
+def test_main_refuses_an_option_value_of_the_wrong_kind(
+    capsys: pytest.CaptureFixture[str], option: str, value: str, message: str
 ) -> None:
     arguments = [
         "--job-name", JOB_NAME, "--kind", "single", "--command", "true", "--bucket", BUCKET,
-        "--checkpoint-dir", "/c", "--image-cuda-version", "twelve",
+        "--checkpoint-dir", "/c", option, value,
     ]  # fmt: skip
 
     with pytest.raises(SystemExit) as raised:
         main(arguments)
 
     assert raised.value.code == 2
-    assert "'twelve' is not a CUDA version such as 12.8" in capsys.readouterr().err
+    assert message in capsys.readouterr().err
