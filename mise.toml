@@ -105,6 +105,10 @@ run = ".github/scripts/approve_agent_prs_test.sh"
 description = "Check that .github/scripts/needs_human_review.sh fails a PR with the needs-human-review label and passes one without"
 run = ".github/scripts/needs_human_review_test.sh"
 
+[tasks."test:image-push-gate-script"]
+description = "Check that .github/scripts/image_push_gate.sh skips the image push, and names each unset variable, unless the release environment's role ARN and region are both set"
+run = ".github/scripts/image_push_gate_test.sh"
+
 [tasks."test:owned-paths-script"]
 description = "Check which changed paths .github/scripts/owned_paths.sh finds in .github/CODEOWNERS, and when it can't tell, with a fake gh"
 run = ".github/scripts/owned_paths_test.sh"
