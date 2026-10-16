@@ -9,11 +9,11 @@
 # .github/workflows/ci.yml passes to language_changed; codeql.yml and
 # docs/build.sh are checked for a test of whether that file exists.
 #
-# The places in copier.yml, in the template's own files, and in README.md's
-# lines about Copier's questions list the template's languages, so only the
-# template repository, which has copier.yml, checks them. A place that names
-# a language by its display name, such as "C and C++", isn't checked, because
-# a project records no display names.
+# The places in copier.yml, in the template's own files, and in
+# .github/README.md's lines about Copier's questions list the template's
+# languages, so only the template repository, which has copier.yml, checks
+# them. A place that names a language by its display name, such as "C and
+# C++", isn't checked, because a project records no display names.
 #
 # Prints an error for each place that lacks a language, naming the file, the
 # place in it, and what to add, then exits with status 1 if there was one.
@@ -118,12 +118,12 @@ check_places_in_the_template() {
   require_line_containing "$language" "$workflow" "the variant job's variants with one language" "data: --data $language=true }"
 
   local readme_command
-  readme_command=$(text_between README.md 'copier copy --defaults' 'gh:')
+  readme_command=$(text_between .github/README.md 'copier copy --defaults' 'gh:')
   if [[ " $readme_command " != *" --data $language=true "* && " $readme_command " != *" --data $language=false "* ]]; then
-    report "$language" README.md "the copier copy command" "\"--data $language=true\" or \"--data $language=false\""
+    report "$language" .github/README.md "the copier copy command" "\"--data $language=true\" or \"--data $language=false\""
   fi
-  require_word "$language" README.md "the list of Copier's questions" \
-    "$(text_between README.md 'one yes/no question per language:' '.')" "\`$language\`"
+  require_word "$language" .github/README.md "the list of Copier's questions" \
+    "$(text_between .github/README.md 'one yes/no question per language:' '.')" "\`$language\`"
 }
 
 # Arguments: a language, a file, the place in the file, and the text that

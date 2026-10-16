@@ -21,9 +21,6 @@ testpaths = ["src", "tests"]
 strict = true
 filterwarnings = ["error"]
 
-[tool.mutmut]
-pytest_add_cli_args = ["-n", "0"]
-
 [dependency-groups]
 dev = [
     "boto3-stubs-lite[s3,sts]>=1.43.114",

@@ -7,7 +7,7 @@ a person, and CI and Bugbot are the gate, so exploratory work that needs
 several rounds doesn't wait for review on each. It is a switch for the whole
 repository; a PR without the `agent` label still needs a person's approval.
 
-Status: in progress (T23 in the plan in the [template repository](https://github.com/arjunbhargava/foundation)). The
+Status: in progress (T23 in [the template plan](https://github.com/arjunbhargava/foundation/blob/main/docs/template-plan.md)). The
 review ruleset, the approval workflow, the auto-merge workflow, and the
 owned-paths and needs-human-review checks are in place. Until the branch-update workflow lands, a PR
 that falls behind `main` waits for someone to update it.
@@ -198,6 +198,10 @@ checks, dependencies, and module boundaries, such as `biome.json`,
 check or add a dependency, which D7 already requires the owner to approve.
 
 ## Switching auto mode on and off
+
+Auto mode needs "Allow GitHub Actions to create and approve pull requests"
+and "Allow auto-merge" on, and Bugbot on for the repository.
+`mise run setup-status` reports which manual setup steps are done.
 
 ```sh
 mise exec -- .github/rulesets/apply.sh --dry-run --auto  # print the changes

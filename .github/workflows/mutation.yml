@@ -9,12 +9,15 @@ name: Mutation testing
 on:
   pull_request:
     # The code it mutates, the tests that check that code, its own
-    # definition, and the tasks and tool pins in mise's files.
+    # definition, and the tasks and tool pins in mise's files. A change to
+    # .github/scripts/*.py mutates code only in the template repository;
+    # mutate.sh leaves a project's copies alone, so there the job just reports
+    # that no changed file was mutated.
     paths:
       - src/**
       - tests/**
-      - lib/**
-      - compute/server/admin_policy/**
+      - '**/src/**'
+      - '**/tests/**'
       - crates/**
       - packages/**
       - .github/scripts/*.py

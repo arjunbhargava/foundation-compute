@@ -96,26 +96,23 @@ forbidden_modules = ["compute_jobs_cli", "compute_jobs"]
 [tool.pytest]
 # -n auto runs tests in parallel, so a test that depends on shared state or on
 # another test's order fails early instead of intermittently later.
-addopts = ["-n", "auto", "--doctest-modules"]
-# Test files need distinct names across the three tests/ directories, because
-# pytest imports each by its file name.
-testpaths = [
-    "src",
-    "tests",
-    "lib/src",
-    "lib/tests",
-    "compute/server/admin_policy/src",
-    "compute/server/admin_policy/tests",
-    ".github/scripts",
-]
+#
+# importlib import mode imports each test file under its own path, so test
+# files in different distributions' tests/ directories may share a name, which
+# the default mode rejects. It doesn't put a test file's directory on sys.path,
+# so pythonpath lets the scripts' tests import the script beside them.
+#
+# conftest.py adds the src/ and tests/ of each uv workspace member to
+# testpaths when a run names no path.
+addopts = ["-n", "auto", "--doctest-modules", "--import-mode=importlib"]
+pythonpath = [".github/scripts"]
+testpaths = ["src", "tests", ".github/scripts"]
 strict = true
 filterwarnings = ["error"]
 
 [tool.mutmut]
-# mutmut guesses lib/ as the code to mutate when lib/ exists. .github/scripts/
-# mutate.sh runs mutmut in each distribution's directory, where it reads that
-# distribution's pyproject.toml.
+# mutmut takes one src/ per run, and guesses lib/ before src/ in a directory
+# that has both, as the root of a workspace with a member in lib/ does.
+# .github/scripts/mutate.sh runs mutmut in each distribution's directory. A
+# member needs no [tool.mutmut] unless it has a lib/ directory of its own.
 source_paths = ["src"]
-# mutmut records which tests call each function, and can't see calls made in
-# pytest-xdist's worker processes, so it runs the tests in one process.
-pytest_add_cli_args = ["-n", "0"]
