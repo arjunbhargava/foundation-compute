@@ -20,8 +20,15 @@ Variables the command sees, besides the caller's own:
     The directory the server mounts on ``checkpoints/<job name>/``.
 ``COMPUTE_JOB_SEED``
     The job file's seed; unset when the job has none.
+``COMPUTE_JOB_SETTINGS``
+    The job file's ``settings`` as JSON; unset when the job has none. The
+    page names no variable for it, so this name is proposed.
 ``COMPUTE_JOB_SMOKE``
     ``0``, unless the caller set it, as a dry run does.
+
+On a ``search`` job, rank 0 starts a Ray head on ``RAY_PORT`` before the
+command and stops it after. Every other rank joins that cluster, runs no
+command, and exits 0 when the head's port closes. ``ray`` must be on ``PATH``.
 
 The command's exit code is the wrapper's, so SkyPilot sees the job fail. A
 command stopped by ``timeout`` exits 124 and is recorded as ``timed_out``.
@@ -31,6 +38,8 @@ import argparse
 import json
 import os
 import re
+import shlex
+import socket
 import subprocess
 import sys
 import tempfile
@@ -61,6 +70,17 @@ POLL_INTERVAL_S = 5.0
 MASTER_PORT = "29500"
 """``MASTER_PORT``, fixed, as the page says."""
 
+RAY_PORT = 6379
+"""The port of the user Ray cluster on a ``search`` job. SkyPilot's own Ray uses
+6380, as the page's "How a search fans out" says."""
+
+RAY_HEAD_WAIT_S = 600.0
+"""How long a worker waits for rank 0's Ray before it fails the job."""
+
+RAY_POLL_INTERVAL_S = 5.0
+"""How often a worker checks whether rank 0's Ray is up, and then whether it is
+still up."""
+
 JOB_KINDS = ("single", "multi-node", "search")
 
 FAILURE_BEFORE_COMMAND_EXIT_CODE = 1
@@ -80,6 +100,7 @@ class Job:
         command: The job file's command, run by bash.
         checkpoint_dir: The path of the mounted checkpoint directory.
         seed: The job file's seed, or None.
+        settings_json: The job file's ``settings`` as a JSON object, or None.
         image_cuda_version: The CUDA version the image needs, such as
             ``12.8``, or None to skip the driver check.
     """
@@ -89,6 +110,7 @@ class Job:
     command: str
     checkpoint_dir: str
     seed: int | None = None
+    settings_json: str | None = None
     image_cuda_version: str | None = None
 
 
@@ -101,8 +123,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Returns:
         The command's exit code; 1 if the archive can't be opened or written, or the
-        driver's CUDA is older than the image's; and 0 on
-        every rank but 0 of a ``search`` job, which has no command to run.
+        driver's CUDA is older than the image's; and, on a ``search`` job's ranks
+        other than 0, 0 once rank 0's Ray has stopped.
     """
     arguments = _build_parser().parse_args(argv)
     job = Job(
@@ -111,6 +133,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         command=arguments.command,
         checkpoint_dir=arguments.checkpoint_dir,
         seed=arguments.seed,
+        settings_json=arguments.settings_json,
         image_cuda_version=arguments.image_cuda_version,
     )
 
@@ -212,6 +235,7 @@ def _run_and_archive(
         started_at=_now(),
         command=job.command,
         seed=job.seed,
+        settings=None if job.settings_json is None else json.loads(job.settings_json),
         image_cuda_version=job.image_cuda_version,
     )
     try:
@@ -234,13 +258,13 @@ def _run_and_archive(
         log.write(f"compute-jobs: {failure}\n")
         exit_code = FAILURE_BEFORE_COMMAND_EXIT_CODE
         record = replace(record, ran_command=False, failure=failure)
-    elif job.kind == "search" and node_rank != 0:
-        exit_code = 0
-        record = replace(record, ran_command=False)
     else:
         command_environment = _command_environment(
             job, environ, distributed, output_dir
         )
+        run_on_this_machine = _runner(job, node_rank, command_environment, log)
+        if job.kind == "search" and node_rank != 0:
+            record = replace(record, ran_command=False)
         stop_publishing = threading.Event()
         publisher = threading.Thread(
             target=_publish_periodically,
@@ -249,7 +273,7 @@ def _run_and_archive(
         )
         publisher.start()
         try:
-            exit_code = _run_command(job.command, command_environment, log)
+            exit_code = run_on_this_machine()
         finally:
             stop_publishing.set()
             publisher.join()
@@ -272,6 +296,72 @@ def _run_and_archive(
     return exit_code
 
 
+def _runner(
+    job: Job, node_rank: int, environ: Mapping[str, str], log: "_JobLog"
+) -> Callable[[], int]:
+    """Return what this machine does: run the command, host Ray, or serve it."""
+    if job.kind != "search":
+        return lambda: _run_command(job.command, environ, log)
+    if node_rank == 0:
+        return lambda: _run_command_on_ray_head(job.command, environ, log)
+    return lambda: _hold_as_ray_worker(environ, log)
+
+
+def _run_command_on_ray_head(
+    command: str, environ: Mapping[str, str], log: "_JobLog"
+) -> int:
+    """Start Ray's head, run the command, and stop Ray, returning the exit code."""
+    start_head = (
+        f"ray start --head --port={RAY_PORT} --include-dashboard=false "
+        f"--disable-usage-stats --node-ip-address={shlex.quote(environ['MASTER_ADDR'])}"
+    )
+    started = _run_command(start_head, environ, log)
+    if started != 0:
+        return started
+    try:
+        return _run_command(command, environ, log)
+    finally:
+        _run_command("ray stop", environ, log)
+
+
+def _hold_as_ray_worker(environ: Mapping[str, str], log: "_JobLog") -> int:
+    """Join the head's Ray cluster and stay until the head's port closes.
+
+    Returns 0 once rank 0's Ray is gone, and otherwise the exit code of the
+    ``ray start`` that failed, or 1 if the head never came up.
+    """
+    head = (environ["MASTER_ADDR"], RAY_PORT)
+    deadline_s = time.monotonic() + RAY_HEAD_WAIT_S
+    while not _accepts_connections(head):
+        if time.monotonic() > deadline_s:
+            log.write(
+                f"compute-jobs: Ray's head at {head[0]}:{head[1]} did not come up "
+                f"within {RAY_HEAD_WAIT_S:.0f} s; check rank 0's log.\n"
+            )
+            return FAILURE_BEFORE_COMMAND_EXIT_CODE
+        time.sleep(RAY_POLL_INTERVAL_S)
+
+    joined = _run_command(
+        f"ray start --address={shlex.quote(head[0])}:{head[1]} --disable-usage-stats",
+        environ,
+        log,
+    )
+    if joined != 0:
+        return joined
+    while _accepts_connections(head):
+        time.sleep(RAY_POLL_INTERVAL_S)
+    _run_command("ray stop", environ, log)
+    return 0
+
+
+def _accepts_connections(address: tuple[str, int]) -> bool:
+    try:
+        socket.create_connection(address, timeout=2).close()
+    except OSError:
+        return False
+    return True
+
+
 def _command_environment(
     job: Job,
     environ: Mapping[str, str],
@@ -287,6 +377,8 @@ def _command_environment(
     }
     if job.seed is not None:
         command_environment["COMPUTE_JOB_SEED"] = str(job.seed)
+    if job.settings_json is not None:
+        command_environment["COMPUTE_JOB_SETTINGS"] = job.settings_json
     return command_environment
 
 
@@ -504,6 +596,16 @@ def _cuda_version(text: str) -> str:
     return text
 
 
+def _json_object(text: str) -> str:
+    try:
+        parsed = json.loads(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"{text!r} is not JSON: {error}") from error
+    if not isinstance(parsed, dict):
+        raise argparse.ArgumentTypeError(f"{text!r} is not a JSON object")
+    return text
+
+
 def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -523,6 +625,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--checkpoint-dir", required=True, help="the mounted checkpoint directory"
     )
     parser.add_argument("--seed", type=int, help="the job file's seed")
+    parser.add_argument(
+        "--settings-json",
+        type=_json_object,
+        help="the job file's settings, as a JSON object",
+    )
     parser.add_argument(
         "--image-cuda-version",
         type=_cuda_version,
