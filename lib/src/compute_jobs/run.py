@@ -80,7 +80,7 @@ RAY_PORT = 6379
 RAY_HEAD_WAIT_S = 600.0
 """How long a worker waits for rank 0's Ray before it fails the job."""
 
-RAY_STOP_GRACE_S = 30.0
+RAY_STOP_GRACE_S = 10.0
 """How long ``_stop_ray`` waits after SIGTERM before it sends SIGKILL."""
 
 RAY_POLL_INTERVAL_S = 5.0
