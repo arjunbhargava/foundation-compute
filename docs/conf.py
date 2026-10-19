@@ -56,6 +56,9 @@ if (repository_root / "pyproject.toml").is_file():
     # any it can't resolve. Each build downloads this inventory, so it needs
     # network access.
     intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
+    # boto3's types appear in lib/'s signatures and docstrings, but neither
+    # boto3's documentation nor its stubs publish a Sphinx inventory.
+    nitpick_ignore_regex = [(r"py:(class|exc)", r"(botocore|mypy_boto3_s3)\..*")]
 
 # Rust: docs/build.sh copies rustdoc's HTML into _generated/html, and Sphinx
 # publishes it unchanged, without reading it as sources.
