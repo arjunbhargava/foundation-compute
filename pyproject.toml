@@ -100,12 +100,13 @@ forbidden_modules = ["compute_jobs_cli", "compute_jobs"]
 # importlib import mode imports each test file under its own path, so test
 # files in different distributions' tests/ directories may share a name, which
 # the default mode rejects. It doesn't put a test file's directory on sys.path,
-# so pythonpath lets the scripts' tests import the script beside them.
+# so pythonpath lets the scripts' tests import the script beside them, and
+# lib/'s tests import their helper module, s3_helpers.
 #
 # conftest.py adds the src/ and tests/ of each uv workspace member to
 # testpaths when a run names no path.
 addopts = ["-n", "auto", "--doctest-modules", "--import-mode=importlib"]
-pythonpath = [".github/scripts"]
+pythonpath = [".github/scripts", "lib/tests"]
 testpaths = ["src", "tests", ".github/scripts"]
 strict = true
 filterwarnings = ["error"]

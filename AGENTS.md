@@ -61,7 +61,8 @@ language the project has: Python.
   new member also needs its package added by hand to the toctree in
   `docs/api/python.md` and to `[tool.importlinter]`. pytest imports test
   files by path, so two members may have a test file of the same name, and a
-  test can't import a helper beside it by name.
+  test can import a helper beside it by name only if its directory is in
+  `pythonpath` under `[tool.pytest]`, as `lib/tests/` is.
 - Module boundaries, which `mise run lint` checks. Add a project's own boundaries:
   - Python: a contract under `[tool.importlinter]` in `pyproject.toml`. The
     client may import the library; the library never imports the client,
