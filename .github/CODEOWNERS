@@ -9,6 +9,7 @@
 /docs/architecture.md    @arjunbhargava
 /.dependency-cruiser.cjs @arjunbhargava
 /pyproject.toml          @arjunbhargava
+/conftest.py             @arjunbhargava
 /CMakeLists.txt          @arjunbhargava
 /biome.json              @arjunbhargava
 /tsconfig.json           @arjunbhargava
@@ -21,6 +22,5 @@
 /docs/conf.py            @arjunbhargava
 /Cargo.toml              @arjunbhargava
 /package.json            @arjunbhargava
-/copier.yml              @arjunbhargava
 # The shared server's configuration, IAM policies, and admin policy.
 /compute/server/         @arjunbhargava

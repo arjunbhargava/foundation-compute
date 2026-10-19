@@ -45,6 +45,10 @@ uv = "0.12.21"
 description = "Install project dependencies"
 depends = ["setup:*"]
 
+[tasks."setup-status"]
+description = "Report which of README.md's manual setup steps are done, not done, or can't be checked, with a link for each; always exits 0; arguments after -- go to the script, such as owner/repo"
+run = ".github/scripts/setup_status.sh"
+
 [tasks."setup:docs"]
 description = "Install the docs build's tools that docs/uv.lock pins"
 run = "uv sync --locked --project docs"
@@ -100,6 +104,10 @@ run = ".github/scripts/auto_merge_test.sh"
 [tasks."test:approve-agent-prs-script"]
 description = "Check which PRs .github/scripts/approve_agent_prs.sh approves, in auto mode and review mode, with a fake gh"
 run = ".github/scripts/approve_agent_prs_test.sh"
+
+[tasks."test:setup-status-script"]
+description = "Check the status .github/scripts/setup_status.sh prints for each step, including when gh is missing, not logged in, or lacks admin access, with a fake gh"
+run = ".github/scripts/setup_status_test.sh"
 
 [tasks."test:needs-human-review-script"]
 description = "Check that .github/scripts/needs_human_review.sh fails a PR with the needs-human-review label and passes one without"

@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import stat
 from pathlib import Path
 from typing import Any
@@ -92,7 +93,15 @@ def test_ac11_exit_0_writes_a_succeeded_run_record_the_log_and_the_output(
     ("command", "exit_code", "state"),
     [
         ("echo about to fail; exit 3", 3, "failed"),
-        ("timeout 1 sleep 30", 124, "timed_out"),
+        pytest.param(
+            "timeout 1 sleep 30",
+            124,
+            "timed_out",
+            marks=pytest.mark.skipif(
+                shutil.which("timeout") is None,
+                reason="GNU timeout, which jobs' Linux images have, is not installed",
+            ),
+        ),
     ],
 )
 def test_ac11_a_nonzero_exit_and_the_timeout_are_a_failed_and_a_timed_out_run_record(

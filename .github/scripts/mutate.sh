@@ -11,11 +11,19 @@
 # changed source files, plus every source file of a package whose tests
 # changed, because a changed test can stop checking any code in its package.
 # A change to this script, its workflow, or stryker.config.json mutates
-# every package.
+# every package. For python, a package is a distribution: the root project
+# or a member of its uv workspace, reported separately.
 #
-# For python, the Python scripts in .github/scripts/ count as one more package,
-# reported separately. The shell scripts there aren't mutated, because mutmut
-# reads only Python and no shell mutation tool is pinned.
+# A project made from the template doesn't own the scripts in .github/scripts/:
+# it receives them through `copier update`, and its changes to them, if any,
+# aren't its code to test. So they are mutated only in the template
+# repository, which is the one with copier.yml (copier.yml leaves that file
+# out of every project). There, for python, the Python scripts count as one
+# more package, reported separately. The shell scripts there aren't mutated,
+# because mutmut reads only Python and no shell mutation tool is pinned.
+#
+# When nothing changed is mutable, for example a package that holds only
+# docstrings, the script says so in one line and succeeds.
 #
 # The report goes to stdout and, in GitHub Actions, to the job summary.
 # Surviving mutants don't fail the script: for now, mutation testing reports
@@ -47,18 +55,36 @@ main() {
 
 mutate_python() {
   mutate_python_source
-  mutate_python_scripts
+  if [[ -f copier.yml ]]; then
+    mutate_python_scripts
+  fi
 }
 
-# A distribution is a directory with a pyproject.toml and a src/, such as the
-# root or a uv workspace member. mutmut runs in each distribution's directory,
-# because it derives a module's name from the file's path with only a leading
-# src/ removed, and reads its settings from that directory's pyproject.toml.
+# A distribution is the root project or a uv workspace member, each with its
+# code in src/ and its tests in tests/. mutmut derives a module's name from
+# the file's path with only a leading src/ removed, and takes a single src/
+# per run, so it runs in each distribution's directory, and each
+# distribution has a report of its own.
 mutate_python_source() {
-  local manifest
-  for manifest in $(git ls-files -- pyproject.toml '*/pyproject.toml'); do
-    if [[ -d $(dirname "$manifest")/src ]]; then
-      mutate_python_distribution "$(dirname "$manifest")"
+  local directory
+  for directory in $(python_distribution_directories); do
+    mutate_python_distribution "$directory"
+  done
+}
+
+# Prints the directory of each Python distribution, relative to the
+# repository root, one per line: "." for the root, then each uv workspace
+# member that has a src/. A project that isn't a workspace has only ".".
+python_distribution_directories() {
+  local root members path
+  root=$(pwd -P)
+  members=$(uv workspace list --paths)
+  for path in $members; do
+    path=${path#"$root"}
+    path=${path#/}
+    path=${path:-.}
+    if [[ $path == . || -d $path/src ]]; then
+      echo "$path"
     fi
   done
 }
@@ -70,6 +96,7 @@ mutate_python_distribution() {
     label="Python ($directory)"
     prefix=$directory/
   fi
+
   local files
   files=$(files_to_mutate "${prefix}tests/" "${prefix}src/*.py")
   if [[ -z $files ]]; then
@@ -89,6 +116,8 @@ mutate_python_distribution() {
     module_globs+=("${module//\//.}.x*")
   done
 
+  # uv runs in the distribution's directory, where mutmut reads its
+  # settings, but with the root project's environment.
   local project_root=$PWD
   (cd "$directory" && UV_PROJECT=$project_root run_mutmut "$label" "$files" "${module_globs[@]}")
 }
@@ -136,17 +165,53 @@ SETTINGS
 # Runs mutmut in the current directory on the modules that match the globs,
 # and reports the surviving mutants. files is the list of mutated source
 # files, for the report.
+#
+# PYTEST_ADDOPTS makes pytest run its tests in one process, because mutmut
+# can't see which test calls a function through pytest-xdist's worker
+# processes. It overrides the -n auto in the root pyproject.toml's addopts,
+# which a distribution inherits unless it sets pytest options of its own.
 run_mutmut() {
   local label=$1 files=$2
   shift 2
+  local generated_mutants untested_mutants
 
   # mutmut reuses results from earlier runs, which a changed test can make
   # wrong.
   rm -rf mutants
   mkdir mutants
-  if ! uv run mutmut run "$@" 2>&1 | tee mutants/run.log; then
+  if ! PYTEST_ADDOPTS="-n 0" uv run mutmut run "$@" 2>&1 | tee mutants/run.log; then
     if grep -qF "Filtered for specific mutants, but nothing matches" mutants/run.log; then
-      report "$label" "$files" 0 0 "mutmut found no code to mutate in these files."
+      report "$label" "$files" 0 0 ""
+      return
+    fi
+
+    # pytest's status 5 means it collected no test, which only matters if some
+    # test is needed: a mutant in the files. Any other status is a broken test
+    # suite, which must fail.
+    if grep -qF "failed to collect stats. runner returned 5" mutants/run.log; then
+      generated_mutants=$(uv run mutmut results --all true)
+      if [[ -z $(matching_mutants "$generated_mutants" "$@") ]]; then
+        report "$label" "$files" 0 0 ""
+        return
+      fi
+    fi
+
+    # mutmut also stops, with status 1, when the tests pass but none of them
+    # calls any function that has a mutant, which is the case for a
+    # distribution that has no function, and for one whose functions no test
+    # calls. In the first, there is nothing to report. In the second, mutmut
+    # has generated the mutants but run none, so each one in the files is a
+    # survivor that no test reaches.
+    if grep -qF "Stopping early, because we could not find any test case for any mutant" mutants/run.log; then
+      generated_mutants=$(uv run mutmut results --all true)
+      untested_mutants=$(matching_mutants "$generated_mutants" "$@")
+      if [[ -z $untested_mutants ]]; then
+        report "$label" "$files" 0 0 ""
+        return
+      fi
+      local untested_count
+      untested_count=$(count_lines "$untested_mutants")
+      report_survivors "$label" "$files" "$untested_mutants" "$untested_count" "mutmut: $untested_count no tests."
       return
     fi
     echo "error: mutmut failed; its output is above." >&2
@@ -156,19 +221,27 @@ run_mutmut() {
   # Each line is "<mutant>: <status>". mutmut generates mutants in every file,
   # and leaves those outside the globs "not checked". "no tests" means no test
   # calls the mutated function.
-  local results survivors survived_count tested_count status_counts
+  local results survivors tested_count status_counts
   results=$(uv run mutmut results --all true)
   survivors=$(awk -F': ' '$2 == "survived" || $2 == "no tests" { print $1 }' <<< "$results")
-  survived_count=$(count_lines "$survivors")
   tested_count=$(awk -F': ' '$2 != "not checked" { n++ } END { print n + 0 }' <<< "$results")
   status_counts=$(awk -F': ' '$2 != "not checked" { count[$2]++ } END { for (status in count) printf "%s%d %s", (n++ ? ", " : ""), count[status], status }' <<< "$results")
+  report_survivors "$label" "$files" "$survivors" "$tested_count" "mutmut: $status_counts."
+}
+
+# Reports mutmut's surviving mutants, one name per line in survivors, each
+# with its diff.
+report_survivors() {
+  local label=$1 files=$2 survivors=$3 tested_count=$4 tool_counts=$5
+  local survived_count
+  survived_count=$(count_lines "$survivors")
 
   # A command substitution fails the script, under set -e, only if it is
   # the whole right-hand side of an assignment, so each is assigned before
   # report prints it.
   local mutant survivor_diffs
   survivor_diffs=$(for mutant in $survivors; do uv run mutmut show "$mutant" || exit 1; done)
-  report "$label" "$files" "$survived_count" "$tested_count" "mutmut: $status_counts." \
+  report "$label" "$files" "$survived_count" "$tested_count" "$tool_counts" \
     "$(printf '```diff\n%s\n```' "$survivor_diffs")"
 }
 
@@ -200,7 +273,7 @@ mutate_rust() {
   local results_dir=target/mutants.out mutant_count
   mutant_count=$(jq length "$results_dir/mutants.json")
   if ((mutant_count == 0)); then
-    report Rust "$files" 0 0 "cargo-mutants found no code to mutate in these files."
+    report Rust "$files" 0 0 ""
     return
   fi
 
@@ -246,7 +319,7 @@ mutate_typescript() {
   local mutant_count
   mutant_count=$(jq '[.files[].mutants[]] | length' "$report_file")
   if ((mutant_count == 0)); then
-    report TypeScript "$files" 0 0 "StrykerJS found no code to mutate in these files."
+    report TypeScript "$files" 0 0 ""
     return
   fi
 
@@ -267,7 +340,7 @@ mutate_typescript() {
 # its workflow, or stryker.config.json, which only mutation testing reads,
 # counts as a change to every package's tests, so that the PR making it runs
 # every step here in CI. In a git pathspec, * also matches /,
-# so src/*.py includes src/compute_jobs_cli/__init__.py.
+# so src/*.py includes src/pkg/module.py.
 files_to_mutate() {
   local tests=$1
   shift
@@ -284,6 +357,8 @@ report() {
   local language=$1 files=$2 survived=$3 total=$4 tool_counts=$5 survivor_list=${6:-}
   if [[ -z $files ]]; then
     echo "### $language mutation testing: no source or test file changed since the merge base with $base"
+  elif ((total == 0)); then
+    echo "### $language mutation testing: passed, because the changed files hold no mutable code: ${files//$'\n'/, }"
   else
     echo "### $language mutation testing: $survived of $total mutants survived"
     echo
@@ -297,6 +372,27 @@ report() {
       echo "$survivor_list"
     fi
   fi | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+}
+
+# Prints the name of each mutant, in a line of mutmut's results, "<mutant>:
+# <status>", that matches one of the module globs. results is the output of
+# `mutmut results --all true`, which lists the mutants of every file.
+matching_mutants() {
+  local results=$1 mutant
+  shift
+  local glob
+  while IFS= read -r mutant; do
+    mutant=${mutant%%:*}
+    mutant=${mutant#"${mutant%%[![:space:]]*}"}
+    for glob in "$@"; do
+      # An unquoted glob is the point: [[ == ]] matches it as a pattern.
+      # shellcheck disable=SC2053
+      if [[ -n $mutant && $mutant == $glob ]]; then
+        echo "$mutant"
+        break
+      fi
+    done
+  done <<< "$results"
 }
 
 # Prints the number of non-empty lines in its argument.
