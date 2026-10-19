@@ -15,8 +15,11 @@ MEMBER_TEST_PATHS = [
 
 
 def default_test_paths_after_conftest() -> list[str]:
-    if not CONFTEST.is_file():
+    if REPOSITORY_ROOT.name == "mutants":
         pytest.skip("mutmut's copy of the distribution has no conftest.py")
+    assert CONFTEST.is_file(), (
+        f"{CONFTEST} is missing, so no workspace member's tests run"
+    )
     specification = importlib.util.spec_from_file_location("root_conftest", CONFTEST)
     assert specification is not None and specification.loader is not None
     conftest = importlib.util.module_from_spec(specification)
